@@ -1,0 +1,12 @@
+{
+  "name": "bookmark",
+  "version": "1.0.0",
+  "description": "十万伏特导航 - 动漫风格的书签导航插件",
+  "scripts": {
+    "build": "cd bookmark-app && npm run build && cd .. && cp bookmark-app/manifest.json bookmark-app/dist/ && if [ -d \"png\" ]; then cp -r png bookmark-app/dist/ 2>/dev/null || true; fi && if [ -d \"gif\" ]; then cp -r gif bookmark-app/dist/ 2>/dev/null || true; fi && if [ -f \"favicon-16x16.ico\" ]; then cp favicon-16x16.ico bookmark-app/dist/ 2>/dev/null || true; fi && echo '✓ 构建完成！现在可以加载扩展了。'",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {
+    "sharp": "^0.34.5"
+  }
+}

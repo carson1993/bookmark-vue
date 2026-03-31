@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "十万伏特导航",
+  "version": "1.0.0",
+  "description": "十万伏特导航 - 动漫风格的书签导航插件",
+  "permissions": [
+    "bookmarks",
+    "tabs",
+    "favicon"
+  ],
+  "action": {
+    "default_title": "十万伏特导航",
+    "default_icon": {
+      "16": "png/pkq1.png",
+      "24": "png/pkq1.png",
+      "32": "png/pkq1.png"
+    }
+  },
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "icons": {
+    "16": "png/pkq1.png",
+    "48": "png/pkq1.png",
+    "128": "png/pkq1.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["favicon-16x16.ico", "png/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

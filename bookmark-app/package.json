@@ -1,0 +1,43 @@
+{
+  "name": "bookmark-app",
+  "version": "1.0.0",
+  "description": "十万伏特导航 - 动漫风格的书签导航插件",
+  "main": "src/main.ts",
+  "author": "carson1993 <https://github.com/carson1993>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/carson1993/bookmark-vue.git"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build-only && npm run copy-resources",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "copy-resources": "cp src/manifest.json dist/ && if [ -d \"../png\" ]; then cp -r ../png dist/; fi && if [ -d \"../gif\" ]; then cp -r ../gif dist/; fi && if [ -f \"../favicon.ico\" ]; then cp ../favicon.ico dist/; fi",
+    "prepare": "npm run copy-resources"
+  },
+  "dependencies": {
+    "pinia": "^3.0.4",
+    "vue": "^3.5.30",
+    "vue-router": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tsconfig/node24": "^24.0.4",
+    "@types/chrome": "^0.0.280",
+    "@types/node": "^24.12.0",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "@vue/eslint-config-typescript": "^10.8.0",
+    "@vue/tsconfig": "^0.9.0",
+    "eslint": "^10.0.3",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "~10.8.0",
+    "prettier": "3.8.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1",
+    "vue-tsc": "^3.2.5"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

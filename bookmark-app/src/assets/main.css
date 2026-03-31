@@ -1,0 +1,95 @@
+@import './base.css';
+
+#app {
+  max-width: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-weight: normal;
+}
+
+a,
+.green {
+  text-decoration: none;
+  color: hsla(160, 100%, 37%, 1);
+  transition: 0.4s;
+  padding: 3px;
+}
+
+@media (hover: hover) {
+  a:hover {
+    background-color: hsla(160, 100%, 37%, 0.2);
+  }
+}
+
+/* 滚动条样式 */
+/* WebKit 滚动条样式 */
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+/* 浅色模式滚动条 */
+.pikachu-light *::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+}
+
+.pikachu-light *::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #FFD700 0%, #FFE566 100%);
+  border-radius: 10px;
+  border: 3px solid rgba(255, 255, 255, 0.95);
+  background-clip: padding-box;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pikachu-light *::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #FFE566 0%, #FFD700 100%);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+}
+
+.pikachu-light *::-webkit-scrollbar-corner {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+}
+
+/* 深色模式滚动条 */
+.pikachu-dark *::-webkit-scrollbar-track {
+  background: rgba(20, 20, 20, 0.98);
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+}
+
+.pikachu-dark *::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #FFD700 0%, #E6C200 100%);
+  border-radius: 10px;
+  border: 3px solid rgba(20, 20, 20, 0.98);
+  background-clip: padding-box;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pikachu-dark *::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #E6C200 0%, #FFD700 100%);
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+}
+
+.pikachu-dark *::-webkit-scrollbar-corner {
+  background: rgba(20, 20, 20, 0.98);
+  border-radius: 12px;
+}
+
+/* Firefox 滚动条样式 */
+.pikachu-light {
+  scrollbar-width: thin;
+  scrollbar-color: #FFD700 rgba(255, 255, 255, 0.95);
+}
+
+.pikachu-dark {
+  scrollbar-width: thin;
+  scrollbar-color: #FFD700 rgba(20, 20, 20, 0.98);
+}

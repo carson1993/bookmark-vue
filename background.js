@@ -1,0 +1,1 @@
+import"./modulepreload-polyfill.js";console.log("Bookmark Navigator background service worker started");chrome?.action?.onClicked&&chrome.action.onClicked.addListener(e=>{chrome?.tabs?.create&&chrome.tabs.create({url:"chrome://newtab"})});
