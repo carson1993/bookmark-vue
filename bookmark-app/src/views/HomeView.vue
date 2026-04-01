@@ -375,149 +375,160 @@ const getCategoryIcon = (categoryName: string) => {
 </script>
 
 <template>
-  <div class="pikachu-container" :class="currentTheme">
-    <div class="bg-pattern"></div>
-    <div class="tech-grid"></div>
-    <div class="lightning-decoration"></div>
-    <div class="pikachu-pattern"></div>
-    <div class="pikachu-ears"></div>
-    <div class="electric-particles"></div>
-    
-    <header class="pk-header">
-      <div class="pk-header-content">
-        <div class="pk-left-section">
-          <div class="pk-logo">
-            <img src="/favicon.ico" alt="logo" />
+    <div class="pikachu-container" :class="currentTheme">
+      <div class="bg-pattern"></div>
+      <div class="tech-grid"></div>
+      <div class="lightning-decoration"></div>
+      <div class="pikachu-pattern"></div>
+      <div class="pikachu-ears"></div>
+      <div class="electric-particles"></div>
+      
+      <header class="pk-header">
+        <div class="pk-header-content">
+          <div class="pk-left-section">
+            <div class="pk-logo">
+              <img src="/favicon.ico" alt="logo" />
+            </div>
+            <div class="pk-title">
+              <h1>十万伏特导航</h1>
+              <span class="pk-version">V1.0.0</span>
+            </div>
+            <div class="pk-search-box">
+              <div class="pk-search-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <path d="m21 21-4.35-4.35"></path>
+                </svg>
+              </div>
+              <input
+                ref="searchInput"
+                v-model="searchStore.query"
+                type="text"
+                placeholder="搜索书签..."
+                @input="$event => searchStore.setSearchQuery(($event.target as HTMLInputElement).value)"
+              />
+            </div>
           </div>
-          <div class="pk-title">
-            <h1>十万伏特导航</h1>
-            <span class="pk-version">V1.0.0</span>
-          </div>
-          <div class="pk-search-box">
-            <div class="pk-search-icon">
+          <div class="pk-right-section">
+            <transition name="pk-fade">
+              <div class="pk-quote" v-show="quoteVisible">
+                <p class="pk-quote-text">{{ dailyQuote.content }}</p>
+                <p class="pk-quote-source" v-if="dailyQuote.from || dailyQuote.fromWho">
+                  <span v-if="dailyQuote.fromWho">{{ dailyQuote.fromWho }}</span>
+                  <span v-if="dailyQuote.fromWho && dailyQuote.from"> · </span>
+                  <span v-if="dailyQuote.from">《{{ dailyQuote.from }}》</span>
+                </p>
+              </div>
+            </transition>
+            <a href="https://github.com/carson1993/bookmark-vue" target="_blank" class="pk-header-github-link" title="GitHub 项目">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <path d="m21 21-4.35-4.35"></path>
+                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
               </svg>
-            </div>
-            <input
-              ref="searchInput"
-              v-model="searchStore.query"
-              type="text"
-              placeholder="搜索书签..."
-              @input="$event => searchStore.setSearchQuery(($event.target as HTMLInputElement).value)"
-            />
+            </a>
+            <button class="pk-theme-btn" @click="toggleTheme" :title="isDarkMode ? '切换到浅色模式' : '切换到深色模式'">
+              <svg v-if="!isDarkMode" class="pk-moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+              </svg>
+              <svg v-else class="pk-sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="5"></circle>
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+              </svg>
+            </button>
           </div>
         </div>
-        <div class="pk-right-section">
-          <transition name="pk-fade">
-            <div class="pk-quote" v-show="quoteVisible">
-              <p class="pk-quote-text">{{ dailyQuote.content }}</p>
-              <p class="pk-quote-source" v-if="dailyQuote.from || dailyQuote.fromWho">
-                <span v-if="dailyQuote.fromWho">{{ dailyQuote.fromWho }}</span>
-                <span v-if="dailyQuote.fromWho && dailyQuote.from"> · </span>
-                <span v-if="dailyQuote.from">《{{ dailyQuote.from }}》</span>
-              </p>
+      </header>
+
+      <div class="pk-main-wrapper">
+        <main class="pk-main-content">
+          <aside class="pk-sidebar-left">
+            <div class="pk-sidebar-card">
+              <div class="pk-sidebar-header">
+                <span class="pk-sidebar-icon">⚡</span>
+                <span>分类导航</span>
+              </div>
+              <nav class="pk-categories">
+                <div
+                  v-for="category in filteredCategories"
+                  :key="category.id"
+                  class="pk-category-item"
+                  :class="{ active: activeCategoryId === category.id }"
+                  @click="showCategoryContent(category.id)"
+                >
+                  <img :src="getCategoryIcon(category.name)" class="pk-category-icon" alt="" />
+                  <span>{{ category.name }}</span>
+                </div>
+              </nav>
             </div>
-          </transition>
-          <a href="https://github.com/carson1993/bookmark-vue" target="_blank" class="pk-header-github-link" title="GitHub 项目">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
-            </svg>
-          </a>
-          <button class="pk-theme-btn" @click="toggleTheme" :title="isDarkMode ? '切换到浅色模式' : '切换到深色模式'">
-            <svg v-if="!isDarkMode" class="pk-moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
-            <svg v-else class="pk-sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="5"></circle>
-              <line x1="12" y1="1" x2="12" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="23"></line>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-              <line x1="1" y1="12" x2="3" y2="12"></line>
-              <line x1="21" y1="12" x2="23" y2="12"></line>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-            </svg>
-          </button>
-        </div>
+          </aside>
+
+          <section class="pk-content">
+            <div class="pk-tabs">
+              <div
+                class="pk-tab-item"
+                :class="{ active: activeTabId === 'all' }"
+                @click="showTabContent(activeCategoryId, 'all')"
+              >
+                全部
+              </div>
+              <div
+                v-for="subcat in bookmarkStore.categories.find(c => c.id === activeCategoryId)?.subcategories || []"
+                :key="subcat.id"
+                class="pk-tab-item"
+                :class="{ active: activeTabId === subcat.id }"
+                @click="showTabContent(activeCategoryId, subcat.id)"
+              >
+                {{ subcat.name }}
+              </div>
+            </div>
+
+            <div class="pk-bookmarks">
+              <div v-if="displayedBookmarks.length === 0" class="pk-empty">
+                <div class="pk-empty-icon">⚡</div>
+                <p>暂无书签</p>
+              </div>
+              <div v-else class="pk-bookmark-grid">
+                <div
+                  v-for="bookmark in displayedBookmarks"
+                  :key="bookmark.id"
+                  class="pk-bookmark-card"
+                >
+                  <a :href="bookmark.url" target="_blank" class="pk-bookmark-link">
+                    <div class="pk-bookmark-icon-wrapper">
+                      <img
+                        :src="getFaviconUrl(bookmark.url)"
+                        class="pk-favicon"
+                        @error="checkFavicon"
+                        alt=""
+                      />
+                    </div>
+                    <span class="pk-bookmark-title">{{ bookmark.title }}</span>
+                    <div class="pk-bookmark-glow"></div>
+                    <div class="pk-bookmark-sparkle"></div>
+                    <div class="pk-bookmark-tech"></div>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
       </div>
-    </header>
 
-    <div class="pk-main-wrapper">
-      <main class="pk-main-content">
-        <aside class="pk-sidebar-left">
-          <div class="pk-sidebar-card">
-            <div class="pk-sidebar-header">
-              <span class="pk-sidebar-icon">⚡</span>
-              <span>分类导航</span>
-            </div>
-            <nav class="pk-categories">
-              <div
-                v-for="category in filteredCategories"
-                :key="category.id"
-                class="pk-category-item"
-                :class="{ active: activeCategoryId === category.id }"
-                @click="showCategoryContent(category.id)"
-              >
-                <img :src="getCategoryIcon(category.name)" class="pk-category-icon" alt="" />
-                <span>{{ category.name }}</span>
-              </div>
-            </nav>
-          </div>
-        </aside>
-
-        <section class="pk-content">
-          <div class="pk-tabs">
-            <div
-              class="pk-tab-item"
-              :class="{ active: activeTabId === 'all' }"
-              @click="showTabContent(activeCategoryId, 'all')"
-            >
-              全部
-            </div>
-            <div
-              v-for="subcat in bookmarkStore.categories.find(c => c.id === activeCategoryId)?.subcategories || []"
-              :key="subcat.id"
-              class="pk-tab-item"
-              :class="{ active: activeTabId === subcat.id }"
-              @click="showTabContent(activeCategoryId, subcat.id)"
-            >
-              {{ subcat.name }}
-            </div>
+      <footer class="pk-footer">
+        <div class="pk-footer-content">
+          <div class="pk-footer-info">
+            <h3 class="pk-footer-title">十万伏特导航</h3>
+            <p class="pk-footer-copyright">© 2026 carson1993. All rights reserved.</p>
           </div>
 
-          <div class="pk-bookmarks">
-            <div v-if="displayedBookmarks.length === 0" class="pk-empty">
-              <div class="pk-empty-icon">⚡</div>
-              <p>暂无书签</p>
-            </div>
-            <div v-else class="pk-bookmark-grid">
-              <div
-                v-for="bookmark in displayedBookmarks"
-                :key="bookmark.id"
-                class="pk-bookmark-card"
-              >
-                <a :href="bookmark.url" target="_blank" class="pk-bookmark-link">
-                  <div class="pk-bookmark-icon-wrapper">
-                    <img
-                      :src="getFaviconUrl(bookmark.url)"
-                      class="pk-favicon"
-                      @error="checkFavicon"
-                      alt=""
-                    />
-                  </div>
-                  <span class="pk-bookmark-title">{{ bookmark.title }}</span>
-                  <div class="pk-bookmark-glow"></div>
-                  <div class="pk-bookmark-sparkle"></div>
-                  <div class="pk-bookmark-tech"></div>
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
+        </div>
+      </footer>
     </div>
 
     <div class="pk-scroll-controls">
@@ -532,17 +543,6 @@ const getCategoryIcon = (categoryName: string) => {
         </svg>
       </button>
     </div>
-
-    <footer class="pk-footer">
-      <div class="pk-footer-content">
-        <div class="pk-footer-info">
-          <h3 class="pk-footer-title">十万伏特导航</h3>
-          <p class="pk-footer-copyright">© 2026 carson1993. All rights reserved.</p>
-        </div>
-
-      </div>
-    </footer>
-  </div>
 </template>
 
 <style scoped>
@@ -554,7 +554,6 @@ const getCategoryIcon = (categoryName: string) => {
   overflow-y: auto;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   transition: background-color 0.5s ease;
-  contain: layout style;
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
@@ -1438,42 +1437,113 @@ const getCategoryIcon = (categoryName: string) => {
 
 .pk-scroll-controls {
   position: fixed;
-  right: 24px;
-  bottom: 32px;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 12px;
-  z-index: 99;
+  z-index: 9999;
+  opacity: 1;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  pointer-events: auto;
+}
+
+.pk-scroll-controls:hover {
+  opacity: 1;
+}
+
+.pk-scroll-controls:hover .pk-scroll-btn {
+  opacity: 1;
+  transform: translateX(-6px);
 }
 
 .pk-scroll-btn {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border: none;
-  border-radius: 16px;
-  background: var(--bg-card);
-  color: var(--text-primary);
+  border-radius: 50%;
+  background: #FFD700;
+  color: #1A1A1A;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: var(--shadow-soft);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
   transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border: 1px solid var(--border-soft);
-  opacity: 0.7;
+  border: 2px solid #FFE566;
+  opacity: 1;
+  position: relative;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.pk-scroll-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 100%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: 0;
 }
 
 .pk-scroll-btn:hover {
   opacity: 1;
-  transform: scale(1.1);
-  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 100%);
+  transform: scale(1.15) translateX(-6px);
+  background: #FFFF00;
   color: #1A1A1A;
-  box-shadow: var(--shadow-glow);
+  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.5);
+}
+
+.pk-scroll-btn:hover::before {
+  opacity: 0.15;
+}
+
+.pk-scroll-btn:active {
+  transform: scale(0.95) translateX(-8px);
 }
 
 .pk-scroll-btn svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
+  position: relative;
+  z-index: 1;
+  transition: transform 0.4s ease;
+}
+
+.pk-scroll-btn:hover svg {
+  transform: scale(1.1);
+}
+
+.pk-scroll-btn:first-child svg {
+  animation: arrowFloat 2s ease-in-out infinite;
+}
+
+.pk-scroll-btn:last-child svg {
+  animation: arrowFloatDown 2s ease-in-out infinite;
+}
+
+@keyframes arrowFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes arrowFloatDown {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(3px);
+  }
 }
 
 .pk-footer {
@@ -1671,6 +1741,24 @@ const getCategoryIcon = (categoryName: string) => {
     width: 100%;
     max-width: 200px;
     justify-content: center;
+  }
+  .pk-scroll-controls {
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .pk-scroll-btn {
+    width: 48px;
+    height: 48px;
+  }
+  .pk-scroll-controls:hover .pk-scroll-btn {
+    transform: translateX(-4px);
+  }
+  .pk-scroll-btn:hover {
+    transform: scale(1.1) translateX(-4px);
+  }
+  .pk-scroll-btn:active {
+    transform: scale(0.95) translateX(-4px);
   }
 }
 </style>
