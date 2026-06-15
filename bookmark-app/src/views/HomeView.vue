@@ -317,45 +317,176 @@ watch([activeCategoryId, activeTabId], () => {
   scrollToTop()
 })
 
-// 缓存favicon URL，避免重复计算
-const faviconCache = new Map()
+// 当 store 中书签数据变化时（如拖拽移动后），重置缓存以强制刷新视图
+watch(() => bookmarkStore.categories, () => {
+  currentCategoryId.value = ''
+  currentTabId.value = ''
+})
 
-const getFaviconUrl = (url: string) => {
-  // 检查缓存
-  if (faviconCache.has(url)) {
-    return faviconCache.get(url)
+// --- Favicon 加载（四级降级，含本地缓存）---
+const FAVICON_CACHE_PREFIX = 'fav:'
+const FAVICON_CACHE_MAX = 120
+
+const pikachuIcons = ['png/pkq1.png', 'png/pkq2.png', 'png/pkq3.png', 'png/pkq4.png']
+
+const getPikachuIcon = (url: string): string => {
+  let hash = 0
+  for (let i = 0; i < url.length; i++) hash = ((hash << 5) - hash) + url.charCodeAt(i)
+  return pikachuIcons[Math.abs(hash) % pikachuIcons.length]
+}
+
+const hashUrl = (url: string): string => {
+  let h = 0
+  for (let i = 0; i < url.length; i++) h = ((h << 5) - h + url.charCodeAt(i)) | 0
+  return (h >>> 0).toString(16)
+}
+
+const getCachedFavicon = (url: string): string | null => {
+  try {
+    return localStorage.getItem(FAVICON_CACHE_PREFIX + hashUrl(url))
+  } catch {
+    return null
   }
-  
-  let faviconUrl
-  if (typeof chrome === 'undefined' || !chrome.runtime) {
-    faviconUrl = getRandomPng()
+}
+
+const setCachedFavicon = (url: string, dataUrl: string) => {
+  try {
+    const key = FAVICON_CACHE_PREFIX + hashUrl(url)
+    localStorage.setItem(key, dataUrl)
+
+    // 超过上限时清理最旧的条目
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k && k.startsWith(FAVICON_CACHE_PREFIX)) keys.push(k)
+    }
+    if (keys.length > FAVICON_CACHE_MAX) {
+      keys.sort((a, b) => {
+        const va = parseInt(localStorage.getItem(a + '_ts') || '0')
+        const vb = parseInt(localStorage.getItem(b + '_ts') || '0')
+        return va - vb
+      })
+      const remove = keys.slice(0, keys.length - FAVICON_CACHE_MAX)
+      remove.forEach((k) => {
+        localStorage.removeItem(k)
+        localStorage.removeItem(k + '_ts')
+      })
+    }
+    localStorage.setItem(key + '_ts', String(Date.now()))
+  } catch {
+    // localStorage 满时静默忽略
+  }
+}
+
+// 四级降级：本地缓存 → Chrome 缓存 → 网站直取 → Google CDN → 皮卡丘
+const getFaviconUrl = (url: string): string => {
+  const cached = getCachedFavicon(url)
+  if (cached) return cached
+
+  try {
+    return `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`
+  } catch {
+    return getPikachuIcon(url)
+  }
+}
+
+const getDirectFaviconUrl = (url: string): string => {
+  try {
+    const u = new URL(url)
+    return `${u.protocol}//${u.hostname}/favicon.ico`
+  } catch {
+    return ''
+  }
+}
+
+const getGoogleFaviconUrl = (url: string): string => {
+  try {
+    const domain = new URL(url).hostname
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
+  } catch {
+    return ''
+  }
+}
+
+const checkFaviconError = (event: Event) => {
+  const img = event.target as HTMLImageElement
+  const url = img.dataset.bookmarkUrl
+  if (!url) return
+  const step = parseInt(img.dataset.fb || '0')
+  if (step === 0) {
+    const direct = getDirectFaviconUrl(url)
+    if (direct) { img.src = direct; img.dataset.fb = '1'; return }
+  }
+  if (step <= 1) {
+    const google = getGoogleFaviconUrl(url)
+    if (google) { img.src = google; img.dataset.fb = '2'; return }
+  }
+  img.src = getPikachuIcon(url)
+}
+
+const checkFaviconLoad = (event: Event) => {
+  const img = event.target as HTMLImageElement
+  const url = img.dataset.bookmarkUrl
+  if (!url) return
+
+  if (isBlankImage(img)) {
+    // 已缓存不是空白才会到这里，如果还是空白，清空缓存并降级
+    if (getCachedFavicon(url)) {
+      try {
+        localStorage.removeItem(FAVICON_CACHE_PREFIX + hashUrl(url))
+        localStorage.removeItem(FAVICON_CACHE_PREFIX + hashUrl(url) + '_ts')
+      } catch {}
+    }
+    checkFaviconError(event)
   } else {
-    try {
-      const urlObj = new URL(chrome.runtime.getURL('/_favicon/'))
-      urlObj.searchParams.set('pageUrl', url)
-      urlObj.searchParams.set('size', '16') // 使用更小的尺寸
-      faviconUrl = urlObj.toString()
-    } catch {
-      faviconUrl = getRandomPng()
+    // 加载成功，缓存到 localStorage
+    if (!getCachedFavicon(url)) {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.drawImage(img, 0, 0)
+          const dataUrl = canvas.toDataURL('image/png')
+          setCachedFavicon(url, dataUrl)
+        }
+      } catch {}
     }
   }
-  
-  // 缓存结果
-  faviconCache.set(url, faviconUrl)
-  return faviconUrl
 }
 
-// 缓存随机PNG，避免重复计算
-const randomPngs = ['png/pkq1.png', 'png/pkq2.png', 'png/pkq3.png', 'png/pkq4.png']
+// Canvas 采样检测：判断图片是否全透明（空白图）
+const isBlankImage = (img: HTMLImageElement): boolean => {
+  // 尺寸异常直接判定为空白
+  if (img.naturalWidth <= 1 || img.naturalHeight <= 1) return true
 
-const getRandomPng = () => {
-  const randomIndex = Math.floor(Math.random() * randomPngs.length)
-  return randomPngs[randomIndex]
-}
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return false
 
-const checkFavicon = (_event: Event) => {
-  const img = _event.target as HTMLImageElement
-  img.src = getRandomPng() ?? ''
+    ctx.drawImage(img, 0, 0)
+
+    const w = img.naturalWidth
+    const h = img.naturalHeight
+    // 采样四个角和中心点
+    const points = [
+      [0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1],
+      [Math.floor(w / 2), Math.floor(h / 2)],
+    ]
+
+    for (const [x, y] of points) {
+      if (x < 0 || y < 0 || x >= w || y >= h) continue
+      const data = ctx.getImageData(x, y, 1, 1).data
+      if (data[3] > 0) return false // 存在非透明像素，不是空白图
+    }
+    return true // 所有采样点都是透明的
+  } catch {
+    return false
+  }
 }
 
 const getCategoryIcon = (categoryName: string) => {
@@ -370,18 +501,173 @@ const getCategoryIcon = (categoryName: string) => {
     '设计创作': 'png/pkq4.png',
     '金融理财': 'png/pkq1.png'
   }
-  return categoryIcons[categoryName] || getRandomPng()
+  return categoryIcons[categoryName] || 'png/pkq1.png'
+}
+
+const formatCount = (count: number): string => {
+  if (count >= 100) return '99+'
+  if (count === 0) return '0'
+  return String(count)
+}
+
+const getBookmarkCount = (categoryId: string, tabId: string = 'all'): number => {
+  return bookmarkStore.getBookmarksByCategory(categoryId, tabId).length
+}
+
+// 拖拽功能状态
+const draggedBookmark = ref<Bookmark | null>(null)
+const dragOverCategoryId = ref<string | null>(null)
+
+const probeLatencyMap = ref<Map<string, number>>(new Map())
+const isProbing = ref<boolean>(false)
+const probeMessage = ref<string>('')
+const probeFailureCount = computed(() => {
+  let c = 0
+  probeLatencyMap.value.forEach(v => { if (v < 0) c++ })
+  return c
+})
+
+const onDragStart = (event: DragEvent, bookmark: Bookmark) => {
+  draggedBookmark.value = bookmark
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', bookmark.id)
+  }
+  // 延迟设置拖拽样式，避免影响 drag 图像
+  setTimeout(() => {
+    const el = event.target as HTMLElement
+    const card = el.closest('.pk-bookmark-card')
+    if (card) card.classList.add('dragging')
+  }, 0)
+}
+
+const onDragEnd = (event: DragEvent) => {
+  draggedBookmark.value = null
+  dragOverCategoryId.value = null
+  const el = event.target as HTMLElement
+  const card = el.closest('.pk-bookmark-card')
+  if (card) card.classList.remove('dragging')
+}
+
+const onDragOverCategory = (event: DragEvent, categoryId: string) => {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragOverCategoryId.value = categoryId
+}
+
+const onDragLeaveCategory = (event: DragEvent, _categoryId: string) => {
+  // 只在真正离开时清除，避免子元素触发
+  const el = event.currentTarget as HTMLElement
+  if (!el.contains(event.relatedTarget as Node)) {
+    dragOverCategoryId.value = null
+  }
+}
+
+const onDropOnCategory = async (event: DragEvent, categoryId: string) => {
+  event.preventDefault()
+  dragOverCategoryId.value = null
+
+  if (!draggedBookmark.value) return
+
+  const bookmark = draggedBookmark.value
+  const currentCategory = bookmarkStore.categories.find((c) => c.id === activeCategoryId.value)
+  const targetCategory = bookmarkStore.categories.find((c) => c.id === categoryId)
+
+  // 不移动到相同分类
+  if (currentCategory && targetCategory && currentCategory.id === targetCategory.id) {
+    return
+  }
+
+  // 保存当前分类名称（stable），moveBookmark 会触发 loadBookmarks 重生成所有 category ID
+  const currentCategoryName = currentCategory?.name
+
+  try {
+    await bookmarkStore.moveBookmark(bookmark.id, categoryId)
+    // 重载后 category ID 已变，按名称找回当前分类，不跳转到目标分类
+    const restored = bookmarkStore.categories.find((c) => c.name === currentCategoryName)
+    if (restored) {
+      activeCategoryId.value = restored.id
+    } else if (bookmarkStore.categories.length > 0) {
+      activeCategoryId.value = bookmarkStore.categories[0].id
+    }
+  } catch (error) {
+    console.error('移动书签失败:', error)
+  } finally {
+    draggedBookmark.value = null
+  }
+}
+
+
+const probeBookmarks = async () => {
+  if (isProbing.value) return
+  probeLatencyMap.value = new Map()
+  isProbing.value = true
+  probeMessage.value = '正在测速...'
+
+  const minDuration = new Promise(r => setTimeout(r, 600))
+
+  try {
+    const urls = [...new Set(displayedBookmarks.value.map(b => b.url))]
+    if (urls.length === 0) {
+      probeMessage.value = '当前没有书签链接'
+      return
+    }
+
+    const totalCount = displayedBookmarks.value.length
+    probeMessage.value = `正在测速 ${totalCount} 个书签（去重 ${urls.length} 个链接）…`
+    const latencyMap = new Map<string, number>()
+    let done = 0
+    let fast = 0, slow = 0, failed = 0
+
+    await Promise.all(urls.map(url =>
+      new Promise<void>(resolve => {
+        const start = performance.now()
+        const ctrl = new AbortController()
+        const timer = setTimeout(() => ctrl.abort(), 60000)
+        fetch(url, { method: 'GET', mode: 'no-cors', signal: ctrl.signal })
+          .then(() => {
+            const ms = Math.round(performance.now() - start)
+            latencyMap.set(url, ms)
+            if (ms < 300) fast++
+            else slow++
+          })
+          .catch(() => {
+            latencyMap.set(url, -1)
+            failed++
+          })
+          .finally(() => {
+            clearTimeout(timer)
+            done++
+            probeMessage.value = `正在测速 ${done} / ${urls.length} 个链接…`
+            resolve()
+          })
+      })
+    ))
+
+    probeLatencyMap.value = latencyMap
+
+    const parts: string[] = []
+    if (fast > 0) parts.push(`${fast} 个快速`)
+    if (slow > 0) parts.push(`${slow} 个延迟`)
+    if (failed > 0) parts.push(`${failed} 个无法访问`)
+    probeMessage.value = parts.join('，') || '全部正常'
+  } catch (e: any) {
+    console.error('测速失败:', e)
+    probeMessage.value = `⚠ 检测失败: ${e?.message || '未知错误'}`
+    probeLatencyMap.value = new Map()
+  } finally {
+    await minDuration
+    isProbing.value = false
+  }
 }
 </script>
 
 <template>
     <div class="pikachu-container" :class="currentTheme">
       <div class="bg-pattern"></div>
-      <div class="tech-grid"></div>
-      <div class="lightning-decoration"></div>
       <div class="pikachu-pattern"></div>
-      <div class="pikachu-ears"></div>
-      <div class="electric-particles"></div>
       
       <header class="pk-header">
         <div class="pk-header-content">
@@ -391,7 +677,7 @@ const getCategoryIcon = (categoryName: string) => {
             </div>
             <div class="pk-title">
               <h1>十万伏特导航</h1>
-              <span class="pk-version">V1.0.0</span>
+              <span class="pk-version">V1.1.0</span>
             </div>
             <div class="pk-search-box">
               <div class="pk-search-icon">
@@ -441,6 +727,20 @@ const getCategoryIcon = (categoryName: string) => {
                 <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
               </svg>
             </button>
+            <div class="pk-probe-wrap">
+              <button class="pk-probe-btn" :class="{ probing: isProbing, 'has-failures': probeFailureCount > 0 }" @click="probeBookmarks" :disabled="isProbing" :title="probeMessage || '测速'">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ 'pk-spin': isProbing }">
+                  <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C17.93 4.07 6.07 4.07 1 9z"></path>
+                  <path d="M5 13l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.86 9.14 5 13z"></path>
+                  <path d="M9 17l2 2c.55-.55 1.45-.55 2 0l2-2c-1.66-1.66-4.34-1.66-6 0z"></path>
+                  <circle cx="12" cy="13" r="1"></circle>
+                </svg>
+                <span v-if="probeFailureCount > 0 && !isProbing" class="pk-probe-badge">{{ probeFailureCount }}</span>
+              </button>
+              <transition name="pk-fade">
+                <span v-if="probeMessage && !isProbing" class="pk-probe-status">{{ probeMessage }}</span>
+              </transition>
+            </div>
           </div>
         </div>
       </header>
@@ -458,11 +758,15 @@ const getCategoryIcon = (categoryName: string) => {
                   v-for="category in filteredCategories"
                   :key="category.id"
                   class="pk-category-item"
-                  :class="{ active: activeCategoryId === category.id }"
+                  :class="{ active: activeCategoryId === category.id, 'drag-over': dragOverCategoryId === category.id }"
                   @click="showCategoryContent(category.id)"
+                  @dragover="onDragOverCategory($event, category.id)"
+                  @dragleave="onDragLeaveCategory($event, category.id)"
+                  @drop="onDropOnCategory($event, category.id)"
                 >
                   <img :src="getCategoryIcon(category.name)" class="pk-category-icon" alt="" />
-                  <span>{{ category.name }}</span>
+                  <span class="pk-category-name">{{ category.name }}</span>
+                  <span class="pk-count-badge">{{ formatCount(getBookmarkCount(category.id)) }}</span>
                 </div>
               </nav>
             </div>
@@ -475,7 +779,7 @@ const getCategoryIcon = (categoryName: string) => {
                 :class="{ active: activeTabId === 'all' }"
                 @click="showTabContent(activeCategoryId, 'all')"
               >
-                全部
+                全部<span class="pk-tab-count">{{ formatCount(getBookmarkCount(activeCategoryId)) }}</span>
               </div>
               <div
                 v-for="subcat in bookmarkStore.categories.find(c => c.id === activeCategoryId)?.subcategories || []"
@@ -484,7 +788,7 @@ const getCategoryIcon = (categoryName: string) => {
                 :class="{ active: activeTabId === subcat.id }"
                 @click="showTabContent(activeCategoryId, subcat.id)"
               >
-                {{ subcat.name }}
+                {{ subcat.name }}<span class="pk-tab-count">{{ formatCount(getBookmarkCount(activeCategoryId, subcat.id)) }}</span>
               </div>
             </div>
 
@@ -498,20 +802,34 @@ const getCategoryIcon = (categoryName: string) => {
                   v-for="bookmark in displayedBookmarks"
                   :key="bookmark.id"
                   class="pk-bookmark-card"
+                  :draggable="true"
+                  @dragstart="onDragStart($event, bookmark)"
+                  @dragend="onDragEnd($event)"
                 >
                   <a :href="bookmark.url" target="_blank" class="pk-bookmark-link">
                     <div class="pk-bookmark-icon-wrapper">
                       <img
                         :src="getFaviconUrl(bookmark.url)"
+                        :data-bookmark-url="bookmark.url"
                         class="pk-favicon"
-                        @error="checkFavicon"
+                        loading="lazy"
+                        @error="checkFaviconError"
+                        @load="checkFaviconLoad"
                         alt=""
                       />
                     </div>
                     <span class="pk-bookmark-title">{{ bookmark.title }}</span>
+                    <span
+                      v-if="probeLatencyMap.has(bookmark.url)"
+                      class="pk-latency-badge"
+                      :class="{
+                        'latency-fast': probeLatencyMap.get(bookmark.url) >= 0 && probeLatencyMap.get(bookmark.url) < 300,
+                        'latency-slow': probeLatencyMap.get(bookmark.url) >= 300,
+                        'latency-dead': probeLatencyMap.get(bookmark.url) < 0
+                      }"
+                    >{{ probeLatencyMap.get(bookmark.url) < 0 ? '--' : probeLatencyMap.get(bookmark.url) + 'ms' }}</span>
                     <div class="pk-bookmark-glow"></div>
                     <div class="pk-bookmark-sparkle"></div>
-                    <div class="pk-bookmark-tech"></div>
                   </a>
                 </div>
               </div>
@@ -546,258 +864,161 @@ const getCategoryIcon = (categoryName: string) => {
 </template>
 
 <style scoped>
+/* ============================================
+   十万伏特导航 — 深度视觉优化版
+   设计方向：玻璃拟态 × 电光金 × 日系精緻
+   ============================================ */
+
+/* --- Container & Base --- */
 .pikachu-container {
   min-height: 100vh;
   width: 100%;
   position: relative;
   overflow-x: hidden;
   overflow-y: auto;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  transition: background-color 0.5s ease;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  transition: background 0.6s ease;
   background: var(--bg-primary);
   display: flex;
   flex-direction: column;
 }
 
-/* 确保背景只在内容区域显示 */
 .pikachu-container::before {
   content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: fixed;
+  inset: 0;
   background: var(--bg-primary);
   z-index: -3;
   pointer-events: none;
 }
 
+/* --- Design Tokens --- */
 .pikachu-container.pikachu-light {
-  --bg-primary: linear-gradient(135deg, #FFF5DB 0%, #FFF8E7 50%, #FFFBF0 100%);
-  --bg-secondary: rgba(255, 255, 255, 0.95);
-  --bg-card: rgba(255, 255, 255, 0.85);
-  --bg-card-hover: rgba(255, 255, 255, 0.98);
-  --text-primary: #1A1A1A;
-  --text-secondary: #4A4A4A;
-  --text-muted: #7A7A7A;
-  --accent-yellow: #FFD700;
-  --accent-yellow-soft: #FFE566;
-  --accent-yellow-neon: #FFFF00;
-  --tech-blue: #00BFFF;
-  --tech-purple: #9370DB;
-  --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.1);
-  --shadow-medium: 0 12px 48px rgba(0, 0, 0, 0.15);
-  --shadow-glow: 0 0 60px rgba(255, 215, 0, 0.45);
-  --shadow-neon: 0 0 80px rgba(0, 191, 255, 0.3);
-  --border-soft: rgba(0, 0, 0, 0.1);
-  --border-glow: 1px solid rgba(255, 215, 0, 0.3);
-  --glass-blur: 32px;
+  --bg-primary: linear-gradient(160deg, #FFF8EC 0%, #FFF3DC 40%, #FFFBF4 100%);
+  --bg-secondary: rgba(255, 255, 255, 0.88);
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --bg-card-hover: rgba(255, 255, 255, 0.92);
+  --text-primary: #1C1C1E;
+  --text-secondary: #515154;
+  --text-muted: #8E8E93;
+  --accent-yellow: #F5C400;
+  --accent-yellow-soft: #FFE088;
+  --accent-yellow-neon: #FFE566;
+  --accent-amber: #F0A030;
+  --accent-blue: #5BA4E6;
+  --shadow-xs: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.1);
+  --shadow-glow: 0 0 40px rgba(245,196,0,0.25);
+  --border-soft: rgba(0,0,0,0.08);
+  --border-glow: rgba(245,196,0,0.25);
+  --glass-blur: 20px;
+  --glass-saturate: 1.4;
+  --text-on-accent: #1C1C1E;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
 }
 
 .pikachu-container.pikachu-dark {
-  --bg-primary: linear-gradient(135deg, #0A0A0A 0%, #1A1A1A 50%, #252525 100%);
-  --bg-secondary: rgba(20, 20, 20, 0.98);
-  --bg-card: rgba(30, 30, 30, 0.9);
-  --bg-card-hover: rgba(40, 40, 40, 0.98);
-  --text-primary: #FFFFFF;
-  --text-secondary: #E0E0E0;
-  --text-muted: #B0B0B0;
-  --accent-yellow: #FFD700;
-  --accent-yellow-soft: #E6C200;
-  --accent-yellow-neon: #FFFF00;
-  --tech-blue: #00BFFF;
-  --tech-purple: #9370DB;
-  --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --shadow-medium: 0 12px 48px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 60px rgba(255, 215, 0, 0.35);
-  --shadow-neon: 0 0 80px rgba(0, 191, 255, 0.25);
-  --border-soft: rgba(255, 255, 255, 0.12);
-  --border-glow: 1px solid rgba(255, 215, 0, 0.4);
-  --glass-blur: 32px;
+  --bg-primary: linear-gradient(160deg, #0D0D0F 0%, #141418 40%, #1A1A1E 100%);
+  --bg-secondary: rgba(20,20,24,0.88);
+  --bg-card: rgba(28,28,34,0.72);
+  --bg-card-hover: rgba(36,36,44,0.92);
+  --text-primary: #F5F5F7;
+  --text-secondary: #AEAEB2;
+  --text-muted: #636366;
+  --accent-yellow: #F5C400;
+  --accent-yellow-soft: #C9A000;
+  --accent-yellow-neon: #FFE566;
+  --accent-amber: #D48820;
+  --accent-blue: #4088CC;
+  --shadow-xs: 0 1px 3px rgba(0,0,0,0.2);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.35);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.4);
+  --shadow-glow: 0 0 40px rgba(245,196,0,0.18);
+  --border-soft: rgba(255,255,255,0.08);
+  --border-glow: rgba(245,196,0,0.2);
+  --glass-blur: 20px;
+  --glass-saturate: 1.2;
+  --text-on-accent: #1C1C1E;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
 }
 
+/* --- Background Ambient Layer --- */
 .bg-pattern {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   z-index: -2;
   pointer-events: none;
+  opacity: 0.6;
 }
 
-.pikachu-light .bg-pattern::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-image: 
-    linear-gradient(rgba(255, 215, 0, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 215, 0, 0.03) 1px, transparent 1px);
-  background-size: 50px 50px;
-  pointer-events: none;
-  z-index: -1;
+.pikachu-light .bg-pattern {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(245,196,0,0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(91,164,230,0.03) 0%, transparent 60%);
 }
 
-.pikachu-dark .bg-pattern::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-image: 
-    linear-gradient(rgba(255, 215, 0, 0.01) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 215, 0, 0.01) 1px, transparent 1px);
-  background-size: 100px 100px;
-  pointer-events: none;
-}
-
-.tech-grid {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: 
-    radial-gradient(circle at center, rgba(0, 191, 255, 0.05) 0%, transparent 70%);
-  background-size: 100% 100%;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.electric-particles {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: -1;
-  overflow: hidden;
-}
-
-.electric-particles::before,
-.electric-particles::after {
-  content: '';
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  background: var(--accent-yellow);
-  border-radius: 50%;
-  box-shadow: 0 0 10px var(--accent-yellow), 0 0 20px var(--accent-yellow);
-  opacity: 0.5;
-}
-
-.electric-particles::before {
-  top: 20%;
-  left: 30%;
-}
-
-.electric-particles::after {
-  top: 60%;
-  right: 20%;
-}
-
-.lightning-decoration {
-  position: fixed;
-  top: -100px;
-  right: -50px;
-  width: 400px;
-  height: 400px;
-  background: linear-gradient(135deg, transparent 40%, rgba(255, 215, 0, 0.05) 50%, transparent 60%);
-  transform: rotate(45deg);
-  z-index: -1;
-  pointer-events: none;
+.pikachu-dark .bg-pattern {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(245,196,0,0.03) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(64,136,204,0.025) 0%, transparent 60%);
 }
 
 .pikachu-pattern {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 800px;
-  height: 800px;
-  background-image: 
-    radial-gradient(circle at 20% 20%, rgba(255, 215, 0, 0.03) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(255, 215, 0, 0.03) 0%, transparent 50%);
+  inset: 0;
   z-index: -1;
   pointer-events: none;
+  opacity: 0.4;
 }
 
-.pikachu-ears {
-  position: fixed;
-  top: -50px;
-  left: 10%;
-  width: 120px;
-  height: 120px;
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.05) 0%, transparent 70%);
-  border-radius: 50% 50% 0 0;
-  transform: rotate(-30deg);
-  z-index: -1;
-  pointer-events: none;
+.pikachu-light .pikachu-pattern {
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 59px, rgba(245,196,0,0.025) 59px, rgba(245,196,0,0.025) 60px),
+    repeating-linear-gradient(90deg, transparent, transparent 59px, rgba(245,196,0,0.025) 59px, rgba(245,196,0,0.025) 60px);
 }
 
-.pikachu-ears::after {
-  content: '';
-  position: absolute;
-  top: -30px;
-  right: -80px;
-  width: 100px;
-  height: 100px;
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.05) 0%, transparent 70%);
-  border-radius: 50% 50% 0 0;
-  transform: rotate(60deg);
+.pikachu-dark .pikachu-pattern {
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 79px, rgba(245,196,0,0.015) 79px, rgba(245,196,0,0.015) 80px),
+    repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(245,196,0,0.015) 79px, rgba(245,196,0,0.015) 80px);
 }
 
-
-
+/* --- Header --- */
 .pk-header {
   position: sticky;
   top: 0;
   z-index: 100;
   background: var(--bg-secondary);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border-bottom: 1px solid var(--border-soft);
-  box-shadow: 0 4px 32px rgba(255, 215, 0, 0.15);
-  overflow: hidden;
-  contain: layout style;
-}
-
-.pk-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.2), transparent);
-  animation: headerShine 3s ease-in-out infinite;
-  pointer-events: none;
-}
-
-@keyframes headerShine {
-  0% { left: -100%; }
-  100% { left: 100%; }
+  box-shadow: 0 1px 0 rgba(245,196,0,0.06);
 }
 
 .pk-header-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 48px;
+  padding: 12px 48px;
   max-width: 1920px;
   margin: 0 auto;
-  gap: 32px;
+  gap: 28px;
 }
 
 .pk-left-section {
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 24px;
   flex: 1;
-  justify-content: flex-start;
 }
 
 .pk-logo {
@@ -805,17 +1026,31 @@ const getCategoryIcon = (categoryName: string) => {
   position: relative;
 }
 
+.pk-logo::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--accent-yellow), var(--accent-amber));
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+}
+
+.pk-logo:hover::after {
+  opacity: 0.3;
+}
+
 .pk-logo img {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  box-shadow: var(--shadow-soft);
-  transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  will-change: transform;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
 }
 
 .pk-logo:hover img {
-  transform: rotate(10deg) scale(1.1);
+  transform: rotate(8deg) scale(1.08);
   box-shadow: var(--shadow-glow);
 }
 
@@ -827,151 +1062,232 @@ const getCategoryIcon = (categoryName: string) => {
 }
 
 .pk-title h1 {
-  font-size: 32px;
-  font-weight: 800;
+  font-size: 28px;
+  font-weight: 700;
   margin: 0;
-  letter-spacing: 2px;
-  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 50%, var(--accent-yellow) 100%);
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-amber) 50%, var(--accent-yellow) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  text-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
-  position: relative;
-  animation: titleGlow 3s ease-in-out infinite;
-}
-
-@keyframes titleGlow {
-  0%, 100% { text-shadow: 0 4px 12px rgba(255, 215, 0, 0.3); }
-  50% { text-shadow: 0 6px 20px rgba(255, 215, 0, 0.5), 0 0 30px rgba(255, 215, 0, 0.2); }
+  filter: drop-shadow(0 1px 2px rgba(245,196,0,0.15));
 }
 
 .pk-title h1::before {
   content: '⚡';
-  margin-right: 8px;
-  animation: lightningFlash 2s ease-in-out infinite;
-}
-
-@keyframes lightningFlash {
-  0%, 100% { opacity: 0.6; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.1); text-shadow: 0 0 20px var(--accent-yellow); }
+  -webkit-text-fill-color: initial;
+  margin-right: 6px;
+  font-size: 0.85em;
 }
 
 .pk-version {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-muted);
   font-weight: 500;
-  padding: 4px 10px;
+  padding: 3px 8px;
   background: var(--bg-card);
-  border-radius: 20px;
+  border-radius: 100px;
   border: 1px solid var(--border-soft);
+  font-family: "SF Mono", "Fira Code", monospace;
 }
 
+/* --- Search Box --- */
 .pk-search-box {
   flex: 1;
-  max-width: 520px;
-  min-width: 280px;
+  max-width: 480px;
+  min-width: 240px;
   position: relative;
-  margin-left: 24px;
+  margin-left: 16px;
 }
 
 .pk-search-icon {
   position: absolute;
-  left: 18px;
+  left: 16px;
   top: 50%;
   transform: translateY(-50%);
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   color: var(--text-muted);
   pointer-events: none;
-  transition: all 0.3s ease;
+  transition: color 0.3s ease;
+  z-index: 2;
 }
 
 .pk-search-box input {
   width: 100%;
-  padding: 16px 24px 16px 56px;
-  border: 2px solid var(--border-soft);
-  border-radius: 50px;
-  font-size: 16px;
+  padding: 12px 20px 12px 46px;
+  border: 1.5px solid var(--border-soft);
+  border-radius: var(--radius-xl);
+  font-size: 14px;
   outline: none;
   background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   color: var(--text-primary);
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 215, 0, 0.1);
-  position: relative;
-  z-index: 1;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+  box-shadow: var(--shadow-xs);
 }
 
 .pk-search-box input::placeholder {
   color: var(--text-muted);
-  font-style: italic;
 }
 
 .pk-search-box input:focus {
   border-color: var(--accent-yellow);
-  box-shadow: 0 0 0 4px rgba(255, 215, 0, 0.2), 0 8px 32px rgba(255, 215, 0, 0.3), 0 0 60px rgba(0, 191, 255, 0.15);
-  transform: scale(1.03);
+  box-shadow: 0 0 0 4px rgba(245,196,0,0.12), var(--shadow-sm);
   background: var(--bg-card-hover);
 }
 
-.pk-search-box input:focus + .pk-search-icon {
+.pk-search-box input:focus ~ .pk-search-icon {
   color: var(--accent-yellow);
-  transform: translateY(-50%) scale(1.2) rotate(10deg);
-  filter: drop-shadow(0 0 10px var(--accent-yellow));
 }
 
+/* --- Right Section --- */
 .pk-right-section {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-shrink: 0;
-  justify-content: flex-start;
-  max-width: 600px;
-  margin-right: 12px;
-  margin-left: -12px;
 }
 
-.pk-header-github-link {
-  width: 48px;
-  height: 48px;
+.pk-header-github-link,
+.pk-theme-btn {
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  text-decoration: none;
-  color: var(--text-secondary);
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--border-soft);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  color: var(--text-secondary);
+  text-decoration: none;
+  box-shadow: var(--shadow-xs);
 }
 
-.pk-header-github-link:hover {
-  transform: scale(1.1) rotate(15deg);
-  box-shadow: var(--shadow-soft);
-  background: linear-gradient(135deg, var(--accent-yellow-soft) 0%, var(--accent-yellow) 100%);
-  color: #1A1A1A;
+.pk-header-github-link svg,
+.pk-theme-btn svg {
+  width: 20px;
+  height: 20px;
 }
 
-.pk-header-github-link svg {
-  width: 22px;
-  height: 22px;
+.pk-header-github-link:hover,
+.pk-theme-btn:hover {
+  transform: scale(1.08);
+  background: var(--accent-yellow);
+  border-color: transparent;
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-glow);
+}
+
+/* probe button */
+.pk-probe-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.pk-probe-btn {
+  width: 44px;
+  height: 44px;
+  border: 1.5px solid rgba(245,196,0,0.25);
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  position: relative;
   flex-shrink: 0;
+}
+
+.pk-probe-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.pk-probe-btn:hover:not(:disabled) {
+  transform: scale(1.08);
+  background: var(--accent-yellow);
+  border-color: transparent;
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-glow);
+}
+
+.pk-probe-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.pk-probe-btn.probing {
+  border-color: var(--accent-yellow);
+  box-shadow: 0 0 12px rgba(245,196,0,0.3);
+  background: rgba(245,196,0,0.12);
+}
+
+.pk-probe-btn.has-failures {
+  border-color: rgba(255,100,80,0.5);
+}
+
+.pk-probe-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: #FF6450;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  line-height: 1;
+  box-shadow: 0 2px 6px rgba(255,100,80,0.4);
+  z-index: 2;
+}
+
+.pk-probe-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pk-spin {
+  animation: pk-spin 1s linear infinite;
+}
+
+@keyframes pk-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .pk-quote {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
-  max-width: 520px;
+  gap: 2px;
+  max-width: 360px;
 }
 
 .pk-quote-text {
-  font-size: 16px;
+  font-size: 13px;
   margin: 0;
   color: var(--text-secondary);
-  font-style: italic;
-  line-height: 1.5;
+  line-height: 1.4;
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -979,278 +1295,260 @@ const getCategoryIcon = (categoryName: string) => {
 }
 
 .pk-quote-source {
-  font-size: 13px;
+  font-size: 11px;
   margin: 0;
   color: var(--text-muted);
   text-align: right;
 }
 
-.pk-theme-btn {
-  width: 48px;
-  height: 48px;
-  border: none;
-  border-radius: 16px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border: 1px solid var(--border-soft);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.pk-theme-btn:hover {
-  transform: scale(1.1) rotate(15deg);
-  box-shadow: var(--shadow-soft);
-  background: linear-gradient(135deg, var(--accent-yellow-soft) 0%, var(--accent-yellow) 100%);
-  color: #1A1A1A;
-}
-
-.pk-theme-btn svg {
-  width: 22px;
-  height: 22px;
-}
-
+/* --- Main Layout --- */
 .pk-main-wrapper {
   flex: 1;
   max-width: 1920px;
   margin: 0 auto;
-  padding: 32px 48px 16px 48px;
+  padding: 24px 48px 16px;
   box-sizing: border-box;
   width: 100%;
 }
 
 .pk-main-content {
   display: flex;
-  gap: 28px;
+  gap: 24px;
   align-items: stretch;
-  flex: 1;
-  min-height: 400px;
 }
 
+/* --- Sidebar --- */
 .pk-sidebar-left {
-  width: 280px;
-  flex-shrink: 0;
-  position: sticky;
-  top: 100px;
-  contain: layout style;
+  width: 270px;
+  position: fixed;
+  left: 48px;
+  top: 88px;
+  bottom: 52px;
+  z-index: 90;
 }
 
 .pk-sidebar-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--bg-card);
-  border-radius: 24px;
-  padding: 24px;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-radius: var(--radius-xl);
+  padding: 16px;
   border: 1px solid var(--border-soft);
-  box-shadow: var(--shadow-soft);
-  contain: layout style;
+  box-shadow: var(--shadow-md);
 }
 
 .pk-sidebar-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--border-soft);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .pk-sidebar-icon {
-  font-size: 20px;
+  font-size: 16px;
+  filter: drop-shadow(0 0 4px rgba(245,196,0,0.4));
 }
 
 .pk-categories {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+  overflow-y: auto;
 }
 
 .pk-category-item {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 22px 24px;
-  border-radius: 20px;
+  gap: 10px;
+  padding: 0 14px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: all 0.25s ease;
   color: var(--text-secondary);
-  font-weight: 600;
-  font-size: 16px;
+  font-weight: 500;
+  font-size: 13px;
   position: relative;
-  overflow: hidden;
-  background: var(--bg-card-hover);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
-  border: 1px solid var(--border-soft);
-  will-change: transform;
-  contain: layout style;
+  background: transparent;
+  border: 1px solid transparent;
 }
 
 .pk-category-item::before {
   content: '';
   position: absolute;
-  left: 0;
-  top: 0;
-  width: 6px;
-  height: 100%;
-  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 100%);
-  border-radius: 0 6px 6px 0;
-  transform: scaleY(0);
-  transition: transform 0.3s ease;
-  box-shadow: 0 0 12px rgba(255, 215, 0, 0.3);
+  inset: 0;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(245,196,0,0.08), rgba(240,160,48,0.04));
+  opacity: 0;
+  transition: opacity 0.25s ease;
 }
 
 .pk-category-item::after {
   content: '';
   position: absolute;
-  top: 50%;
-  right: -20px;
-  width: 10px;
-  height: 10px;
+  left: 0;
+  top: 20%;
+  height: 60%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
   background: var(--accent-yellow);
-  border-radius: 50%;
-  opacity: 0;
-  transform: translateY(-50%) scale(0);
-  transition: all 0.3s ease;
-  box-shadow: 0 0 12px var(--accent-yellow);
+  transform: scaleY(0);
+  transition: transform 0.25s ease;
 }
 
 .pk-category-item:hover {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, var(--bg-card-hover) 100%);
-  transform: translateX(8px) scale(1.02);
   color: var(--text-primary);
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.15);
-  border-color: rgba(255, 215, 0, 0.3);
+  border-color: var(--border-glow);
 }
 
 .pk-category-item:hover::before {
-  transform: scaleY(1);
+  opacity: 1;
 }
 
 .pk-category-item:hover::after {
-  opacity: 1;
-  transform: translateY(-50%) scale(1);
-  right: 16px;
-}
-
-.pk-category-item.active {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(255, 215, 0, 0.1) 100%);
-  color: var(--text-primary);
-  transform: translateX(8px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.25);
-  border-color: rgba(255, 215, 0, 0.4);
-}
-
-.pk-category-item.active::before {
   transform: scaleY(1);
 }
 
-.pk-category-item.active::after {
-  opacity: 1;
-  transform: translateY(-50%) scale(1);
-  right: 16px;
-  animation: pulse 2s ease-in-out infinite;
+.pk-category-item.active {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: linear-gradient(135deg, rgba(245,196,0,0.12), rgba(240,160,48,0.06));
+  border-color: var(--border-glow);
+  box-shadow: var(--shadow-sm);
 }
 
-@keyframes pulse {
-  0%, 100% { transform: translateY(-50%) scale(1); opacity: 1; }
-  50% { transform: translateY(-50%) scale(1.2); opacity: 0.8; }
+.pk-category-item.active::before {
+  opacity: 1;
+}
+
+.pk-category-item.active::after {
+  transform: scaleY(1);
+}
+
+.pk-category-item.drag-over {
+  background: linear-gradient(135deg, rgba(245,196,0,0.18), rgba(240,160,48,0.1)) !important;
+  border-color: var(--accent-yellow) !important;
+  box-shadow: var(--shadow-glow) !important;
+}
+
+.pk-category-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pk-count-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 1px 7px;
+  border-radius: 100px;
+  border: 1px solid var(--border-soft);
+  line-height: 1.5;
+  flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.pk-category-item:hover .pk-count-badge,
+.pk-category-item.active .pk-count-badge {
+  color: var(--text-primary);
+  border-color: var(--border-glow);
+  background: rgba(245,196,0,0.08);
 }
 
 .pk-category-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+/* --- Main Content --- */
 .pk-content {
   flex: 1;
   min-width: 0;
+  margin-left: calc(270px + 24px);
   background: var(--bg-card);
-  border-radius: 24px;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border-radius: var(--radius-xl);
   padding: 24px;
   border: 1px solid var(--border-soft);
-  box-shadow: var(--shadow-soft);
-  contain: layout style;
-  min-height: 400px;
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
 }
 
+/* --- Tabs --- */
 .pk-tabs {
   display: flex;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 8px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
-  padding-bottom: 16px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--border-soft);
 }
 
 .pk-tab-item {
-  padding: 14px 28px;
-  border-radius: 20px;
+  padding: 8px 20px;
+  border-radius: 100px;
   cursor: pointer;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-  font-weight: 600;
-  font-size: 14px;
+  transition: all 0.25s ease;
+  font-weight: 500;
+  font-size: 13px;
   color: var(--text-secondary);
-  position: relative;
-  overflow: hidden;
-  background: var(--bg-card-hover);
+  background: transparent;
   border: 1px solid var(--border-soft);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  contain: layout style;
-}
-
-.pk-tab-item::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.2), transparent);
-  transition: left 0.6s ease;
 }
 
 .pk-tab-item:hover {
   color: var(--text-primary);
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, var(--bg-card-hover) 100%);
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.15);
-  border-color: rgba(255, 215, 0, 0.3);
-}
-
-.pk-tab-item:hover::before {
-  left: 100%;
+  border-color: var(--border-glow);
+  background: rgba(245,196,0,0.06);
 }
 
 .pk-tab-item.active {
-  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 100%);
-  color: #1A1A1A;
-  box-shadow: 0 6px 24px rgba(255, 215, 0, 0.4);
-  transform: translateY(-2px) scale(1.02);
+  background: linear-gradient(135deg, var(--accent-yellow), var(--accent-amber));
+  color: var(--text-on-accent);
+  font-weight: 600;
   border-color: transparent;
+  box-shadow: 0 2px 12px rgba(245,196,0,0.3);
 }
 
-.pk-tab-item.active::before {
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  animation: tabShine 2s ease-in-out infinite;
+/* --- Bookmarks --- */
+.pk-tab-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 4px;
+  opacity: 0.7;
 }
 
-@keyframes tabShine {
-  0% { left: -100%; }
-  100% { left: 100%; }
+.pk-tab-item.active .pk-tab-count {
+  color: var(--text-on-accent);
+  opacity: 0.75;
 }
 
 .pk-bookmarks {
   flex: 1;
-  contain: layout style;
   min-height: 200px;
 }
 
@@ -1259,173 +1557,176 @@ const getCategoryIcon = (categoryName: string) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px;
-  gap: 16px;
+  padding: 60px 20px;
+  gap: 12px;
 }
 
 .pk-empty-icon {
-  font-size: 64px;
-  animation: float 3s ease-in-out infinite;
+  font-size: 56px;
+  opacity: 0.6;
+  animation: float 4s ease-in-out infinite;
 }
 
 @keyframes float {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-12px); }
+  50% { transform: translateY(-8px); }
 }
 
 .pk-empty p {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
 .pk-bookmark-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 24px;
-  contain: layout style;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
 }
 
-.pk-bookmark-card {
-  /* 移除动画效果以提升性能 */
+.pk-bookmark-card.dragging {
+  opacity: 0.35;
+  transform: scale(0.96);
 }
 
+
+/* latency badge on bookmark cards */
+.pk-latency-badge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.4;
+  z-index: 2;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.pk-latency-badge.latency-fast {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+}
+
+.pk-latency-badge.latency-slow {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.pk-latency-badge.latency-dead {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+/* --- Bookmark Card --- */
 .pk-bookmark-link {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px 22px;
-  border-radius: 24px;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card-hover);
   text-decoration: none;
   color: var(--text-primary);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
   border: 1px solid var(--border-soft);
   position: relative;
   overflow: hidden;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 215, 0, 0.1);
-  min-height: 67px;
-  will-change: transform;
-  contain: layout style;
+  box-shadow: var(--shadow-xs);
+  min-height: 52px;
 }
 
 .pk-bookmark-link::before {
   content: '';
   position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.2), transparent);
-  transition: left 0.6s ease;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(245,196,0,0.06), transparent 60%);
+  opacity: 0;
+  transition: opacity 0.35s ease;
   z-index: 0;
 }
 
 .pk-bookmark-glow {
   position: absolute;
-  top: 50%;
-  left: 50%;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(circle, rgba(255, 215, 0, 0.45) 0%, rgba(0, 191, 255, 0.2) 70%, transparent 100%);
-  transform: translate(-50%, -50%) scale(0);
+  background: radial-gradient(ellipse at 30% 20%, rgba(245,196,0,0.12), transparent 70%);
   opacity: 0;
-  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity 0.35s ease;
   pointer-events: none;
   z-index: 0;
 }
 
 .pk-bookmark-sparkle {
   position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 10px;
-  height: 10px;
+  top: 12px;
+  right: 16px;
+  width: 6px;
+  height: 6px;
   background: var(--accent-yellow-neon);
   border-radius: 50%;
   opacity: 0;
   transform: scale(0);
-  transition: all 0.4s ease;
-  box-shadow: 0 0 16px var(--accent-yellow-neon), 0 0 32px var(--accent-yellow);
+  transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
+  box-shadow: 0 0 8px var(--accent-yellow);
   z-index: 1;
 }
 
-.pk-bookmark-tech {
-  position: absolute;
-  bottom: -20px;
-  right: -20px;
-  width: 60px;
-  height: 60px;
-  background: linear-gradient(135deg, rgba(0, 191, 255, 0.1) 0%, transparent 70%);
-  border-radius: 50%;
-  z-index: 0;
-  transition: all 0.4s ease;
-}
-
 .pk-bookmark-link:hover {
-  transform: translateY(-8px) scale(1.02);
-  box-shadow: 
-    0 8px 24px rgba(255, 215, 0, 0.2), 
-    0 0 40px rgba(255, 215, 0, 0.1);
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(255, 215, 0, 0.05) 100%);
-  border-color: rgba(255, 215, 0, 0.4);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--border-glow);
+  border-color: var(--accent-yellow);
 }
 
 .pk-bookmark-link:hover::before {
-  left: 100%;
+  opacity: 1;
 }
 
 .pk-bookmark-link:hover .pk-bookmark-glow {
-  transform: translate(-50%, -50%) scale(3);
   opacity: 1;
 }
 
 .pk-bookmark-link:hover .pk-bookmark-sparkle {
-  opacity: 1;
+  opacity: 0.8;
   transform: scale(1);
-  animation: sparkle 2s ease-in-out infinite;
 }
 
-.pk-bookmark-link:hover .pk-bookmark-tech {
-  transform: scale(1.5);
-  opacity: 1;
-}
-
-@keyframes sparkle {
-  0%, 100% { opacity: 0; transform: scale(0); }
-  50% { opacity: 1; transform: scale(1.2); box-shadow: 0 0 24px var(--accent-yellow-neon), 0 0 48px var(--accent-yellow); }
-}
-
+/* --- Bookmark Icon --- */
 .pk-bookmark-icon-wrapper {
-  width: 50px;
-  height: 50px;
-  border-radius: 16px;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-hover) 100%);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  background: linear-gradient(135deg, var(--bg-card), var(--bg-card-hover));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), var(--shadow-xs);
+  transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
   position: relative;
   z-index: 1;
+  flex-shrink: 0;
 }
 
 .pk-bookmark-link:hover .pk-bookmark-icon-wrapper {
-  transform: scale(1.1) rotate(5deg);
-  box-shadow: 0 12px 32px rgba(255, 215, 0, 0.25);
+  transform: scale(1.08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 4px 16px rgba(245,196,0,0.2);
 }
 
 .pk-favicon {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
 }
 
 .pk-bookmark-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   text-align: left;
-  line-height: 1.4;
+  line-height: 1.3;
   flex: 1;
   max-width: 100%;
   overflow: hidden;
@@ -1435,123 +1736,79 @@ const getCategoryIcon = (categoryName: string) => {
   z-index: 1;
 }
 
+/* --- Scroll Controls --- */
 .pk-scroll-controls {
   position: fixed;
   top: 50%;
-  right: 20px;
+  right: 24px;
   transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  z-index: 9999;
-  opacity: 1;
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  gap: 10px;
+  z-index: 200;
   pointer-events: auto;
 }
 
-.pk-scroll-controls:hover {
-  opacity: 1;
-}
-
-.pk-scroll-controls:hover .pk-scroll-btn {
-  opacity: 1;
-  transform: translateX(-6px);
-}
-
 .pk-scroll-btn {
-  width: 56px;
-  height: 56px;
-  border: none;
+  width: 44px;
+  height: 44px;
+  border: 1.5px solid rgba(245,196,0,0.25);
   border-radius: 50%;
-  background: #FFD700;
-  color: #1A1A1A;
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  border: 2px solid #FFE566;
-  opacity: 1;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
   position: relative;
   overflow: hidden;
-  pointer-events: auto;
 }
 
-.pk-scroll-btn::before {
+.pk-scroll-btn::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 100%);
+  background: radial-gradient(circle, rgba(245,196,0,0.2), transparent);
   opacity: 0;
-  transition: opacity 0.4s ease;
-  z-index: 0;
+  transition: opacity 0.35s ease;
 }
 
 .pk-scroll-btn:hover {
-  opacity: 1;
-  transform: scale(1.15) translateX(-6px);
-  background: #FFFF00;
-  color: #1A1A1A;
-  box-shadow: 0 8px 24px rgba(255, 215, 0, 0.5);
+  transform: scale(1.1);
+  background: var(--accent-yellow);
+  border-color: transparent;
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-glow);
 }
 
-.pk-scroll-btn:hover::before {
-  opacity: 0.15;
+.pk-scroll-btn:hover::after {
+  opacity: 1;
 }
 
 .pk-scroll-btn:active {
-  transform: scale(0.95) translateX(-8px);
+  transform: scale(0.95);
 }
 
 .pk-scroll-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   position: relative;
   z-index: 1;
-  transition: transform 0.4s ease;
 }
 
-.pk-scroll-btn:hover svg {
-  transform: scale(1.1);
-}
-
-.pk-scroll-btn:first-child svg {
-  animation: arrowFloat 2s ease-in-out infinite;
-}
-
-.pk-scroll-btn:last-child svg {
-  animation: arrowFloatDown 2s ease-in-out infinite;
-}
-
-@keyframes arrowFloat {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-3px);
-  }
-}
-
-@keyframes arrowFloatDown {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(3px);
-  }
-}
-
+/* --- Footer --- */
 .pk-footer {
   margin-top: 16px;
-  padding: 16px 0;
+  padding: 14px 0;
   border-top: 1px solid var(--border-soft);
   background: var(--bg-secondary);
-  contain: layout style;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
   position: relative;
   z-index: 1;
   width: 100%;
@@ -1559,71 +1816,61 @@ const getCategoryIcon = (categoryName: string) => {
 }
 
 .pk-footer-content {
-  max-width: 1920px;
+  max-width: 480px;
   margin: 0 auto;
-  padding: 0 48px;
+  padding: 0 24px;
   display: flex;
   justify-content: center;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 6px;
   text-align: center;
 }
 
 .pk-footer-info {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .pk-footer-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--accent-yellow) 0%, var(--accent-yellow-soft) 50%, var(--accent-yellow) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .pk-footer-copyright {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
 .pk-footer-links {
   display: flex;
-  gap: 12px;
+  gap: 10px;
 }
 
 .pk-footer-link {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   text-decoration: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
-  transition: all 0.3s ease;
-  padding: 6px 12px;
-  border-radius: 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-soft);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  transition: color 0.25s ease;
+  padding: 4px 10px;
+  border-radius: 100px;
 }
 
 .pk-footer-link:hover {
-  transform: translateY(-2px);
   color: var(--accent-yellow);
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.15);
-  border-color: rgba(255, 215, 0, 0.3);
 }
 
 .pk-footer-link svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
 }
 
@@ -1631,43 +1878,50 @@ const getCategoryIcon = (categoryName: string) => {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 2px;
 }
 
 .pk-footer-text {
   margin: 0;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
 }
 
+/* --- Transitions --- */
 .pk-fade-enter-active,
 .pk-fade-leave-active {
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .pk-fade-enter-from,
 .pk-fade-leave-to {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-6px);
 }
+
+/* ============================================
+   Responsive Breakpoints
+   ============================================ */
 
 @media (min-width: 1440px) {
   .pk-bookmark-grid {
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 24px;
   }
   .pk-sidebar-left {
     width: 300px;
+  }
+  .pk-content {
+    margin-left: calc(300px + 24px);
   }
 }
 
 @media (max-width: 992px) {
   .pk-header-content {
-    padding: 16px 24px;
+    padding: 10px 20px;
     flex-wrap: wrap;
   }
   .pk-main-wrapper {
-    padding: 24px;
+    padding: 16px;
   }
   .pk-main-content {
     flex-direction: column;
@@ -1675,27 +1929,45 @@ const getCategoryIcon = (categoryName: string) => {
   .pk-sidebar-left {
     width: 100%;
     position: static;
+    left: auto;
+    top: auto;
+    bottom: auto;
+  }
+  .pk-sidebar-card {
+    position: static;
+    height: auto;
+    display: block;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .pk-categories {
     flex-direction: row;
     flex-wrap: wrap;
+    flex: auto;
+    min-height: auto;
   }
   .pk-category-item {
     flex: 1;
-    min-width: calc(50% - 6px);
+    min-width: calc(50% - 4px);
+    height: auto;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .pk-content {
+    margin-left: 0;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .pk-footer-content {
-    padding: 0 24px;
+    padding: 0 16px;
     flex-direction: column;
-    align-items: center;
-    text-align: center;
-  }
-  .pk-footer-acknowledgement {
-    align-items: center;
   }
 }
 
 @media (max-width: 640px) {
+  .pk-title h1 {
+    font-size: 22px;
+  }
   .pk-left-section {
     flex-wrap: wrap;
   }
@@ -1703,35 +1975,36 @@ const getCategoryIcon = (categoryName: string) => {
     order: 3;
     width: 100%;
     max-width: 100%;
+    margin-left: 0;
   }
   .pk-quote {
     display: none;
   }
   .pk-bookmark-grid {
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
   }
   .pk-bookmark-link {
-    padding: 22px 18px;
-    min-height: 88px;
+    padding: 16px 14px;
+    min-height: 64px;
   }
   .pk-bookmark-icon-wrapper {
-    width: 64px;
-    height: 64px;
+    width: 48px;
+    height: 48px;
   }
   .pk-favicon {
-    width: 36px;
-    height: 36px;
+    width: 28px;
+    height: 28px;
   }
   .pk-category-item {
-    padding: 18px 20px;
-    font-size: 15px;
+    padding: 12px 14px;
+    font-size: 12px;
   }
   .pk-footer {
-    padding: 30px 0;
+    padding: 20px 0;
   }
   .pk-footer-title {
-    font-size: 20px;
+    font-size: 14px;
   }
   .pk-footer-links {
     flex-direction: column;
@@ -1739,26 +2012,15 @@ const getCategoryIcon = (categoryName: string) => {
   }
   .pk-footer-link {
     width: 100%;
-    max-width: 200px;
+    max-width: 180px;
     justify-content: center;
   }
   .pk-scroll-controls {
-    right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
+    right: 12px;
   }
   .pk-scroll-btn {
-    width: 48px;
-    height: 48px;
-  }
-  .pk-scroll-controls:hover .pk-scroll-btn {
-    transform: translateX(-4px);
-  }
-  .pk-scroll-btn:hover {
-    transform: scale(1.1) translateX(-4px);
-  }
-  .pk-scroll-btn:active {
-    transform: scale(0.95) translateX(-4px);
+    width: 40px;
+    height: 40px;
   }
 }
 </style>

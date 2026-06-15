@@ -36,7 +36,8 @@ export const useSearchStore = defineStore('search', {
         const filtered = []
         for (const bookmark of allBookmarks) {
           if (bookmark.title.toLowerCase().includes(lowerQuery) ||
-              bookmark.url.toLowerCase().includes(lowerQuery)) {
+              bookmark.url.toLowerCase().includes(lowerQuery) ||
+              bookmark.pinyinIndex.includes(lowerQuery)) {
             filtered.push(bookmark)
           }
         }

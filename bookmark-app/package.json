@@ -1,6 +1,6 @@
 {
   "name": "bookmark-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "十万伏特导航 - 动漫风格的书签导航插件",
   "main": "src/main.ts",
   "author": "carson1993 <https://github.com/carson1993>",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "pinia": "^3.0.4",
+    "pinyin-pro": "^3.27.0",
     "vue": "^3.5.30",
     "vue-router": "^5.0.3"
   },
@@ -27,7 +28,7 @@
     "@types/chrome": "^0.0.280",
     "@types/node": "^24.12.0",
     "@vitejs/plugin-vue": "^6.0.4",
-    "@vue/eslint-config-typescript": "^10.8.0",
+    "@vue/eslint-config-typescript": "^14.8.0",
     "@vue/tsconfig": "^0.9.0",
     "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",

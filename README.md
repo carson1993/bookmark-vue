@@ -2,49 +2,54 @@
 
 动漫风格的书签导航浏览器扩展插件（Chrome / Edge）
 
-## 🎨 特性
+## 特性
 
 ### 核心功能
-- ✅ **书签管理** - 读取浏览器书签并自动分类
-- ✅ **多级分类** - 支持无限层级的书签文件夹
-- ✅ **标签页切换** - 快速切换不同分类
-- ✅ **智能搜索** - 实时搜索书签标题和网址
-- ✅ **智能图标** - 自动检测并替换空白/纯色图标
+- **书签管理** - 读取浏览器书签并自动按文件夹分类
+- **两级分类** - 支持分类和子分类的书签组织结构
+- **标签页切换** - 同一分类下快速切换子分类
+- **拼音搜索** - 支持中文、英文、拼音全拼和首字母的模糊搜索
+- **拖拽移动** - 拖拽书签卡片到侧边栏分类即可移动书签
+- **链接测速** - 一键检测当前分类下所有书签的连通性和延迟
+- **智能图标** - Canvas 透明度检测 + 四级降级（本地缓存 → Chrome 缓存 → 网站直取 → Google CDN → 皮卡丘占位图）
+- **图标缓存** - 成功加载的 favicon 自动缓存到 localStorage，减少网络消耗
 
 ### 效果图
 ![效果预览](./Display.png)
 
 ### 视觉特色
-- 🎨 动漫风格 UI 设计（皮卡丘主题）
-- 🌈 渐变色系统（红/黄/青三色）
-- ✨ 流畅的 CSS 动画和过渡效果
-- 🎯 悬停交互反馈
-- 📱 响应式布局
-- 🌓 深色/浅色主题切换
+- 动漫风格 UI 设计（皮卡丘主题）
+- 玻璃拟态（Glassmorphism）+ 电光金配色
+- 流畅的 CSS 动画和过渡效果
+- 悬停交互反馈和发光效果
+- 响应式布局（≥1440px / ≤992px / ≤640px 三断点）
+- 深色/浅色主题切换
 
-## 🛠️ 技术栈
+## 技术栈
 
 ### 前端框架
-- **Vue 3** - 渐进式 JavaScript 框架
+- **Vue 3** - Composition API + `<script setup>`
 - **TypeScript** - 类型安全
 - **Pinia** - 状态管理
-- **Vue Router** - 路由管理
-- **Vite** - 下一代前端构建工具
+- **Vue Router** - 路由管理（Hash 模式）
+- **Vite** - 多入口构建工具
+
+### 核心依赖
+- **pinyin-pro** - 中文拼音转换，支持全拼和首字母搜索
 
 ### 代码质量工具
-- **Oxlint** - 极速 Rust linter
 - **ESLint** - 代码检查
 - **Prettier** - 代码格式化
-- **Vitest** - 单元测试框架
+- **vue-tsc** - TypeScript 类型检查
 
 ### 浏览器 API
 - Chrome Extensions Manifest V3
-- `chrome.bookmarks` API
-- `chrome.tabs` API
-- `chrome.runtime` API
-- `chrome.action` API
+- `chrome.bookmarks` API（读取、移动书签）
+- `chrome.tabs` API（标签页管理）
+- `chrome._favicon` API（图标获取）
+- `chrome.action` API（扩展图标点击）
 
-## 📁 项目结构
+## 项目结构
 
 ```
 bookmark-app/
@@ -55,43 +60,33 @@ bookmark-app/
 │   ├── *.js                # 构建的 JS 文件
 │   ├── *.css               # 构建的 CSS 文件
 │   └── png/                # 图片资源
-├── public/                  # 公共资源
-│   └── favicon.ico         # 网站图标
 ├── src/                     # 源代码
 │   ├── views/              # 页面组件
-│   │   ├── HomeView.vue   # 新标签页视图
-│   │   ├── PopupView.vue  # 弹窗视图
-│   │   └── AboutView.vue  # 关于页面
+│   │   ├── HomeView.vue   # 新标签页视图（核心页面）
+│   │   └── PopupView.vue  # 弹窗视图
 │   ├── stores/             # Pinia 状态管理
-│   │   ├── bookmark.ts    # 书签状态
-│   │   ├── search.ts      # 搜索状态
-│   │   └── counter.ts     # 计数器状态
+│   │   ├── bookmark.ts    # 书签数据 + 拼音索引
+│   │   └── search.ts      # 搜索过滤（含拼音匹配）
 │   ├── router/             # 路由配置
 │   │   └── index.ts       # 路由定义
-│   ├── components/         # 组件
-│   │   ├── icons/         # 图标组件
-│   │   ├── HelloWorld.vue
-│   │   ├── TheWelcome.vue
-│   │   └── WelcomeItem.vue
 │   ├── assets/             # 静态资源
-│   │   ├── base.css
-│   │   ├── main.css
-│   │   └── logo.svg
+│   │   ├── base.css        # 基础样式
+│   │   └── main.css        # 主样式
 │   ├── App.vue             # 根组件
 │   ├── main.ts             # 新标签页入口
 │   ├── popup.ts            # 弹窗入口
-│   ├── background.ts       # 后台服务
+│   ├── background.ts       # 后台 Service Worker
 │   ├── global.d.ts         # 全局类型定义
-│   └── manifest.json       # 扩展配置
+│   └── manifest.json       # 扩展配置（源文件）
 ├── index.html              # 新标签页入口 HTML
 ├── popup.html              # 弹窗入口 HTML
 ├── background.html         # 后台入口 HTML
 ├── package.json
-├── vite.config.ts
+├── vite.config.ts          # 多入口构建配置
 └── tsconfig.json
 ```
 
-## 🚀 开发
+## 开发
 
 ### 安装依赖
 ```bash
@@ -111,12 +106,6 @@ cd bookmark-app
 npm run build
 ```
 
-### 代码检查
-```bash
-cd bookmark-app
-npm run lint
-```
-
 ### 代码格式化
 ```bash
 cd bookmark-app
@@ -126,16 +115,10 @@ npx prettier --write "src/**/*.{vue,ts,tsx}"
 ### 类型检查
 ```bash
 cd bookmark-app
-npm run type-check
+npx vue-tsc --noEmit
 ```
 
-### 单元测试
-```bash
-cd bookmark-app
-npm run test:unit
-```
-
-## 📦 扩展安装
+## 扩展安装
 
 1. 构建项目：`cd bookmark-app && npm run build`
 2. 打开 Chrome/Edge 浏览器
@@ -144,85 +127,55 @@ npm run test:unit
 5. 点击"加载已解压的扩展程序"
 6. 选择 `bookmark-app/dist` 目录
 
-## 🎯 功能清单
+## 功能清单
 
-### 核心功能
-- ✅ 读取浏览器书签
-- ✅ 自动分类整理
-- ✅ 多级文件夹支持
-- ✅ 标签页切换
-- ✅ 搜索书签
-- ✅ 智能图标处理
-- ✅ 错误处理
-- ✅ 空状态提示
-- ✅ 点击数据统计
-- ✅ 每日一言显示
-- ✅ 深色/浅色主题切换
-- ✅ 性能监控
+### 已实现
+- 读取浏览器书签并自动分类
+- 两级分类 + 子分类标签页切换
+- 拼音搜索（中文、英文、全拼、首字母）
+- Canvas 透明度检测 + 四级 favicon 降级加载
+- favicon localStorage 缓存（LRU 淘汰，最多 120 条）
+- 书签拖拽移动到其他分类
+- 链接连通性测速（延迟徽章展示）
+- 每日一言（hitokoto API，10 分钟缓存）
+- 深色/浅色主题切换（CSS Design Tokens）
+- 性能监控（FP/FCP + 内存 + 加载时间）
+- 响应式布局（三断点适配）
+- 错误处理和空状态提示
 
-### 增强功能
-- ✅ 实时搜索
-- ✅ 状态持久化
-- ✅ 类型安全
-- ✅ 响应式更新
-- ✅ 组件化架构
-- ✅ 点击次数记录
-- ✅ 最近点击排序
-- ✅ 缓存优化
+## 架构设计
 
-## 📊 性能优化
-
-- **代码分割** - 自动分割 chunk
-- **懒加载** - 路由级懒加载
-- **压缩优化** - Gzip 压缩
-- **资源优化** - 图标懒加载
-
-## 🎨 样式系统
-
-### CSS 变量
-```css
---primary-color: #ff6b6b
---secondary-color: #ffcb05
---accent-color: #4ecdc4
+### 四级 Favicon 降级链
+```
+localStorage 缓存 → Chrome _favicon/ API → 网站直取 /favicon.ico → Google S2 CDN → 皮卡丘占位图
 ```
 
-### 动画效果
-- 背景渐变动画
-- 侧边栏悬停动画
-- 书签卡片悬停效果
-- 标签页切换动画
+### 拼音搜索原理
+```
+"阿里云" → pinyin-pro 解析 → ["a", "li", "yun"]
+  ├── 全拼索引: "aliyun"
+  └── 首字母索引: "aly"
+  
+搜索 "a" / "ali" / "yun" / "aly" / "liyun" 均可匹配
+```
 
-## 📝 开发说明
-
-### 添加新页面
-1. 在 `src/views/` 创建新组件
-2. 在 `src/router/index.ts` 添加路由
-3. 在 `vite.config.ts` 添加入口
-
-### 添加新状态
-1. 在 `src/stores/` 创建新 store
-2. 使用 `defineStore` 定义状态
-3. 在组件中使用 `useStore`
-
-## 🤝 贡献
+## 贡献
 
 欢迎提交 Issue 和 Pull Request！
 
-## 📄 许可证
+## 许可证
 
 MIT License
 
-## 🙏 致谢
+## 致谢
 
 - Vue.js 团队
 - Chrome Extensions 团队
-- 所有用户的支持
+- pinyin-pro 作者
+- hitokoto 一言 API
 
 ---
 
-**版本**: 1.0.0  
+**版本**: 1.1.0  
 **作者**: carson1993  
-**最后更新**: 2026-03-31
-
-
-[def]: Display.png
+**最后更新**: 2026-06-15

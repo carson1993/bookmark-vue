@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "十万伏特导航",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "十万伏特导航 - 动漫风格的书签导航插件",
   "permissions": [
     "bookmarks",
@@ -26,8 +26,16 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["favicon.ico", "png/*"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "favicon.ico",
+        "png/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ]
 }

@@ -53,3 +53,24 @@ if (chrome?.tabs?.onCreated) {
     }
   })
 }
+
+// --- 书签连通性探测 ---
+chrome.runtime.onMessage.addListener((msg: any, _sender: any, respond: any) => {
+  if (msg.type === 'PROBE_URLS') {
+    const urls: string[] = msg.urls
+    const results: { url: string; reachable: boolean }[] = []
+    let done = 0
+    urls.forEach((url) => {
+      const ctrl = new AbortController()
+      setTimeout(() => ctrl.abort(), 5000)
+      fetch(url, { method: 'HEAD', signal: ctrl.signal })
+        .then((r) => results.push({ url, reachable: r.ok }))
+        .catch(() => results.push({ url, reachable: false }))
+        .finally(() => {
+          done++
+          if (done === urls.length) respond(results)
+        })
+    })
+    return true // 保持通道开放等待异步响应
+  }
+})

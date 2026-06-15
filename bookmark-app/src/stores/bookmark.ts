@@ -1,10 +1,26 @@
 import { defineStore } from 'pinia'
+import { pinyin } from 'pinyin-pro'
 
 export interface Bookmark {
   id: string
   title: string
   url: string
   parentId?: string
+  /** 拼音索引：包含全拼和首字母，用于搜索匹配 */
+  pinyinIndex: string
+}
+
+/** 为中文文本生成拼音索引（全拼 + 首字母） */
+export function buildPinyinIndex(text: string): string {
+  if (!text) return ''
+  try {
+    const py = pinyin(text, { toneType: 'none', type: 'array' })
+    const full = py.join('').toLowerCase()
+    const first = py.map((s) => s[0]).join('').toLowerCase()
+    return `${full} ${first}`
+  } catch {
+    return ''
+  }
 }
 
 export interface Subcategory {
@@ -15,6 +31,7 @@ export interface Subcategory {
 export interface Category {
   id: string
   name: string
+  chromeFolderId?: string
   bookmarks: Bookmark[]
   subcategories: Subcategory[]
 }
@@ -68,24 +85,26 @@ export const useBookmarkStore = defineStore('bookmark', {
         return false
       }
 
-      const isBookmarksBar = (node: ChromeBookmarkNode): boolean => {
+      const isSystemFolder = (node: ChromeBookmarkNode): boolean => {
         if (!node.title) return false
-        const title = node.title
+        const t = node.title
         return (
-          title === '收藏夹栏' ||
-          title === 'Bookmarks bar' ||
-          title === '书签栏'
+          t === '书签栏' || t === '收藏夹栏' || t === 'Bookmarks bar' ||
+          t === '其他书签' || t === 'Other Bookmarks' ||
+          t === '移动书签' || t === 'Mobile Bookmarks'
         )
       }
 
       const collectAllBookmarks = (nodes: ChromeBookmarkNode[], parentId?: string) => {
         for (const node of nodes) {
           if (node.url) {
+            const title = node.title || node.url
             this.allBookmarks.push({
               id: node.id,
-              title: node.title || node.url,
+              title,
               url: node.url,
               parentId,
+              pinyinIndex: buildPinyinIndex(title),
             })
           } else if (node.children) {
             collectAllBookmarks(node.children, node.id)
@@ -100,12 +119,14 @@ export const useBookmarkStore = defineStore('bookmark', {
       ) => {
         for (const node of nodes) {
           if (node.url) {
+            const title = node.title || node.url
             if (parentCategory) {
               parentCategory.bookmarks.push({
                 id: node.id,
-                title: node.title || node.url,
+                title,
                 url: node.url,
                 parentId: node.parentId,
+                pinyinIndex: buildPinyinIndex(title),
               })
             } else {
               let defaultCategory = this.categories.find((c) => c.id === 'default')
@@ -120,17 +141,19 @@ export const useBookmarkStore = defineStore('bookmark', {
               }
               defaultCategory.bookmarks.push({
                 id: node.id,
-                title: node.title || node.url,
+                title,
                 url: node.url,
                 parentId: node.parentId,
+                pinyinIndex: buildPinyinIndex(title),
               })
             }
           } else if (node.children) {
-            if (!isBookmarksBar(node) && hasContent(node.children)) {
+            if (!isSystemFolder(node) && hasContent(node.children)) {
               const id = `category_${Date.now()}_${Math.floor(Math.random() * 1000)}`
               const category: Category = {
                 id,
                 name: node.title || '未命名文件夹',
+                chromeFolderId: node.id,
                 bookmarks: [],
                 subcategories: [],
               }
@@ -146,7 +169,7 @@ export const useBookmarkStore = defineStore('bookmark', {
               }
 
               collectBookmarksByCategory(node.children, category, level + 1)
-            } else if (isBookmarksBar(node)) {
+            } else if (isSystemFolder(node)) {
               collectBookmarksByCategory(node.children, parentCategory, level)
             }
           }
@@ -156,23 +179,26 @@ export const useBookmarkStore = defineStore('bookmark', {
       if (node.children && node.children.length > 0) {
         collectAllBookmarks(node.children)
         collectBookmarksByCategory(node.children)
-        const validCategories = []
-        for (const category of this.categories) {
-          const hasBookmarks = category.bookmarks.length > 0
-          let hasSubcategories = false
-          for (const subcat of category.subcategories) {
-            const subcatData = this.categories.find((c) => c.id === subcat.id)
-            if (subcatData && (subcatData.bookmarks.length > 0 || subcatData.subcategories.length > 0)) {
-              hasSubcategories = true
-              break
-            }
-          }
-          if (hasBookmarks || hasSubcategories) {
-            validCategories.push(category)
-          }
-        }
-        this.categories = validCategories
       }
+    },
+
+    async moveBookmark(bookmarkId: string, targetCategoryId: string) {
+      const category = this.categories.find((c) => c.id === targetCategoryId)
+      if (!category) {
+        throw new Error('目标分类不存在')
+      }
+
+      if (!category.chromeFolderId) {
+        throw new Error('无法移动到该分类')
+      }
+
+      if (!chrome?.bookmarks?.move) {
+        throw new Error('Chrome书签API不可用')
+      }
+
+      await chrome.bookmarks.move(bookmarkId, { parentId: category.chromeFolderId })
+
+      await this.loadBookmarks()
     },
 
     getBookmarksByCategory(categoryId: string, tabId: string = 'all'): Bookmark[] {
