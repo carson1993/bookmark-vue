@@ -52,6 +52,13 @@ const searchStore = useSearchStore()
 const searchInput = ref<HTMLInputElement | null>(null)
 
 const isDarkMode = ref<boolean>(false)
+
+const clearSearch = () => {
+  searchStore.setSearchQuery('')
+  if (searchInput.value) {
+    searchInput.value.focus()
+  }
+}
 const currentTheme = ref<string>('pikachu-light')
 
 
@@ -412,6 +419,10 @@ const checkFaviconError = (event: Event) => {
   const img = event.target as HTMLImageElement
   const url = img.dataset.bookmarkUrl
   if (!url) return
+
+  // 切换源时先隐藏，避免闪烁
+  img.classList.remove('loaded')
+
   const step = parseInt(img.dataset.fb || '0')
   if (step === 0) {
     const direct = getDirectFaviconUrl(url)
@@ -439,7 +450,9 @@ const checkFaviconLoad = (event: Event) => {
     }
     checkFaviconError(event)
   } else {
-    // 加载成功，缓存到 localStorage
+    // 加载成功，淡入显示
+    img.classList.add('loaded')
+    // 缓存到 localStorage
     if (!getCachedFavicon(url)) {
       try {
         const canvas = document.createElement('canvas')
@@ -693,6 +706,17 @@ const probeBookmarks = async () => {
                 placeholder="搜索书签..."
                 @input="$event => searchStore.setSearchQuery(($event.target as HTMLInputElement).value)"
               />
+              <button
+                class="pk-search-clear"
+                v-show="searchStore.query"
+                @click="clearSearch"
+                title="清除搜索"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
             </div>
           </div>
           <div class="pk-right-section">
@@ -957,19 +981,19 @@ const probeBookmarks = async () => {
   inset: 0;
   z-index: -2;
   pointer-events: none;
-  opacity: 0.6;
+  opacity: 0.8;
 }
 
 .pikachu-light .bg-pattern {
   background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(245,196,0,0.04) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(91,164,230,0.03) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 60% at 15% 25%, rgba(245,196,0,0.07) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 70% at 80% 65%, rgba(91,164,230,0.04) 0%, transparent 55%);
 }
 
 .pikachu-dark .bg-pattern {
   background:
-    radial-gradient(ellipse 80% 60% at 20% 30%, rgba(245,196,0,0.03) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 80% at 80% 70%, rgba(64,136,204,0.025) 0%, transparent 60%);
+    radial-gradient(ellipse 80% 60% at 15% 25%, rgba(245,196,0,0.05) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 70% at 80% 65%, rgba(64,136,204,0.035) 0%, transparent 55%);
 }
 
 .pikachu-pattern {
@@ -977,19 +1001,19 @@ const probeBookmarks = async () => {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.4;
+  opacity: 0.5;
 }
 
 .pikachu-light .pikachu-pattern {
   background-image:
-    repeating-linear-gradient(0deg, transparent, transparent 59px, rgba(245,196,0,0.025) 59px, rgba(245,196,0,0.025) 60px),
-    repeating-linear-gradient(90deg, transparent, transparent 59px, rgba(245,196,0,0.025) 59px, rgba(245,196,0,0.025) 60px);
+    repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(245,196,0,0.03) 39px, rgba(245,196,0,0.03) 40px),
+    repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(245,196,0,0.03) 39px, rgba(245,196,0,0.03) 40px);
 }
 
 .pikachu-dark .pikachu-pattern {
   background-image:
-    repeating-linear-gradient(0deg, transparent, transparent 79px, rgba(245,196,0,0.015) 79px, rgba(245,196,0,0.015) 80px),
-    repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(245,196,0,0.015) 79px, rgba(245,196,0,0.015) 80px);
+    repeating-linear-gradient(0deg, transparent, transparent 59px, rgba(245,196,0,0.02) 59px, rgba(245,196,0,0.02) 60px),
+    repeating-linear-gradient(90deg, transparent, transparent 59px, rgba(245,196,0,0.02) 59px, rgba(245,196,0,0.02) 60px);
 }
 
 /* --- Header --- */
@@ -1002,6 +1026,18 @@ const probeBookmarks = async () => {
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border-bottom: 1px solid var(--border-soft);
   box-shadow: 0 1px 0 rgba(245,196,0,0.06);
+}
+
+.pk-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-yellow), var(--accent-amber), transparent);
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .pk-header-content {
@@ -1085,10 +1121,11 @@ const probeBookmarks = async () => {
   color: var(--text-muted);
   font-weight: 500;
   padding: 3px 8px;
-  background: var(--bg-card);
+  background: linear-gradient(135deg, rgba(245,196,0,0.08), rgba(240,160,48,0.04));
   border-radius: 100px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid rgba(245,196,0,0.18);
   font-family: "SF Mono", "Fira Code", monospace;
+  letter-spacing: -0.01em;
 }
 
 /* --- Search Box --- */
@@ -1115,7 +1152,7 @@ const probeBookmarks = async () => {
 
 .pk-search-box input {
   width: 100%;
-  padding: 12px 20px 12px 46px;
+  padding: 12px 44px 12px 46px;
   border: 1.5px solid var(--border-soft);
   border-radius: var(--radius-xl);
   font-size: 14px;
@@ -1138,8 +1175,42 @@ const probeBookmarks = async () => {
   background: var(--bg-card-hover);
 }
 
-.pk-search-box input:focus ~ .pk-search-icon {
+.pk-search-box:focus-within .pk-search-icon {
   color: var(--accent-yellow);
+}
+
+.pk-search-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 2;
+  padding: 0;
+}
+
+.pk-search-clear:hover {
+  color: var(--text-primary);
+  background: rgba(245,196,0,0.12);
+}
+
+.pk-search-clear:active {
+  transform: translateY(-50%) scale(0.9);
+}
+
+.pk-search-clear svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* --- Right Section --- */
@@ -1281,13 +1352,26 @@ const probeBookmarks = async () => {
   align-items: flex-end;
   gap: 2px;
   max-width: 360px;
+  position: relative;
+}
+
+.pk-quote::before {
+  content: '"';
+  position: absolute;
+  left: -16px;
+  top: -6px;
+  font-size: 22px;
+  color: var(--accent-yellow);
+  opacity: 0.4;
+  font-family: Georgia, serif;
+  line-height: 1;
 }
 
 .pk-quote-text {
   font-size: 13px;
   margin: 0;
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.5;
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -1299,6 +1383,8 @@ const probeBookmarks = async () => {
   margin: 0;
   color: var(--text-muted);
   text-align: right;
+  font-style: italic;
+  opacity: 0.8;
 }
 
 /* --- Main Layout --- */
@@ -1349,13 +1435,15 @@ const probeBookmarks = async () => {
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  padding-bottom: 10px;
+  padding: 14px 12px 10px;
   border-bottom: 1px solid var(--border-soft);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  background: linear-gradient(180deg, rgba(245,196,0,0.05), transparent);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 
 .pk-sidebar-icon {
@@ -1375,7 +1463,7 @@ const probeBookmarks = async () => {
   align-items: center;
   gap: 10px;
   padding: 0 14px;
-  height: 40px;
+  height: 48px;
   flex-shrink: 0;
   border-radius: var(--radius-lg);
   cursor: pointer;
@@ -1427,9 +1515,10 @@ const probeBookmarks = async () => {
 .pk-category-item.active {
   color: var(--text-primary);
   font-weight: 600;
-  background: linear-gradient(135deg, rgba(245,196,0,0.12), rgba(240,160,48,0.06));
-  border-color: var(--border-glow);
-  box-shadow: var(--shadow-sm);
+  background: linear-gradient(135deg, rgba(245,196,0,0.15), rgba(240,160,48,0.08));
+  border-color: var(--accent-yellow);
+  box-shadow: 0 0 0 1px rgba(245,196,0,0.35), 0 2px 12px rgba(245,196,0,0.18);
+  outline: none;
 }
 
 .pk-category-item.active::before {
@@ -1455,13 +1544,13 @@ const probeBookmarks = async () => {
 }
 
 .pk-count-badge {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
   background: var(--bg-card);
   padding: 1px 7px;
   border-radius: 100px;
-  border: 1px solid var(--border-soft);
+  border: 1px solid rgba(245,196,0,0.12);
   line-height: 1.5;
   flex-shrink: 0;
   transition: all 0.25s ease;
@@ -1557,25 +1646,28 @@ const probeBookmarks = async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  gap: 12px;
+  padding: 80px 20px;
+  gap: 16px;
 }
 
 .pk-empty-icon {
-  font-size: 56px;
-  opacity: 0.6;
-  animation: float 4s ease-in-out infinite;
+  font-size: 64px;
+  opacity: 0.5;
+  animation: float 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 12px rgba(245,196,0,0.3));
 }
 
 @keyframes float {
   0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  50% { transform: translateY(-10px); }
 }
 
 .pk-empty p {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .pk-bookmark-grid {
@@ -1637,6 +1729,22 @@ const probeBookmarks = async () => {
   min-height: 52px;
 }
 
+/* 顶部渐变光线 */
+.pk-bookmark-link::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 20%;
+  width: 60%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-yellow), var(--accent-amber), transparent);
+  opacity: 0;
+  transform: scaleX(0.3);
+  transition: opacity 0.35s ease, transform 0.45s ease;
+  z-index: 2;
+  border-radius: 0 0 2px 2px;
+}
+
 .pk-bookmark-link::before {
   content: '';
   position: absolute;
@@ -1682,6 +1790,11 @@ const probeBookmarks = async () => {
   border-color: var(--accent-yellow);
 }
 
+.pk-bookmark-link:hover::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
 .pk-bookmark-link:hover::before {
   opacity: 1;
 }
@@ -1691,8 +1804,40 @@ const probeBookmarks = async () => {
 }
 
 .pk-bookmark-link:hover .pk-bookmark-sparkle {
-  opacity: 0.8;
+  opacity: 0.9;
   transform: scale(1);
+  animation: pk-sparkle-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pk-sparkle-pulse {
+  0%, 100% { box-shadow: 0 0 6px var(--accent-yellow); }
+  50% { box-shadow: 0 0 14px var(--accent-yellow-neon), 0 0 20px rgba(245,196,0,0.4); }
+}
+
+/* 卡片入场动画 */
+.pk-bookmark-card {
+  animation: pk-card-enter 0.4s ease-out both;
+}
+
+.pk-bookmark-card:nth-child(1) { animation-delay: 0.02s; }
+.pk-bookmark-card:nth-child(2) { animation-delay: 0.04s; }
+.pk-bookmark-card:nth-child(3) { animation-delay: 0.06s; }
+.pk-bookmark-card:nth-child(4) { animation-delay: 0.08s; }
+.pk-bookmark-card:nth-child(5) { animation-delay: 0.10s; }
+.pk-bookmark-card:nth-child(6) { animation-delay: 0.12s; }
+.pk-bookmark-card:nth-child(7) { animation-delay: 0.14s; }
+.pk-bookmark-card:nth-child(8) { animation-delay: 0.16s; }
+.pk-bookmark-card:nth-child(n+9) { animation-delay: 0.18s; }
+
+@keyframes pk-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* --- Bookmark Icon --- */
@@ -1720,6 +1865,12 @@ const probeBookmarks = async () => {
   width: 24px;
   height: 24px;
   border-radius: 7px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.pk-favicon.loaded {
+  opacity: 1;
 }
 
 .pk-bookmark-title {
@@ -1766,6 +1917,12 @@ const probeBookmarks = async () => {
   transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
   position: relative;
   overflow: hidden;
+  animation: pk-scroll-pulse 3s ease-in-out infinite;
+}
+
+@keyframes pk-scroll-pulse {
+  0%, 100% { box-shadow: var(--shadow-sm); }
+  50% { box-shadow: var(--shadow-sm), 0 0 10px 0 rgba(245,196,0,0.18); }
 }
 
 .pk-scroll-btn::after {
@@ -1813,6 +1970,17 @@ const probeBookmarks = async () => {
   z-index: 1;
   width: 100%;
   box-sizing: border-box;
+}
+
+.pk-footer::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(245,196,0,0.3), transparent);
+  pointer-events: none;
 }
 
 .pk-footer-content {

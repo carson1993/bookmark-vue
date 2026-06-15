@@ -99,6 +99,9 @@ const checkFaviconError = (event: Event) => {
   const img = event.target as HTMLImageElement
   const url = img.dataset.bookmarkUrl
   if (!url) return
+
+  img.classList.remove('loaded')
+
   const step = parseInt(img.dataset.fb || '0')
   if (step === 0) {
     const direct = getDirectFaviconUrl(url)
@@ -125,6 +128,7 @@ const checkFaviconLoad = (event: Event) => {
     }
     checkFaviconError(event)
   } else {
+    img.classList.add('loaded')
     if (!getCachedFavicon(url)) {
       try {
         const canvas = document.createElement('canvas')
@@ -250,6 +254,12 @@ const isBlankImage = (img: HTMLImageElement): boolean => {
   width: 16px;
   height: 16px;
   margin-right: 8px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.favicon.loaded {
+  opacity: 1;
 }
 
 .link-text {
