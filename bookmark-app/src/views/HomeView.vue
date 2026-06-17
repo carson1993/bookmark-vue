@@ -757,7 +757,7 @@ const probeBookmarks = async () => {
             </div>
             <div class="pk-title">
               <h1>十万伏特导航</h1>
-              <span class="pk-version">V1.1.0</span>
+              <span class="pk-version">V1.1.1</span>
             </div>
             <div class="pk-search-box">
               <div class="pk-search-icon">

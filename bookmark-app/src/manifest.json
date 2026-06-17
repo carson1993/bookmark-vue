@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "十万伏特导航",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "十万伏特导航 - 动漫风格的书签导航插件",
   "permissions": [
     "bookmarks",
