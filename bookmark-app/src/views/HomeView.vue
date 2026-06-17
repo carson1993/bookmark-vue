@@ -118,18 +118,40 @@ const saveQuote = (quote: { content: string; from: string; fromWho: string }) =>
   localStorage.setItem('dailyQuote', JSON.stringify(quote))
 }
 
+const getBookmarksContainer = (): HTMLElement | null => {
+  return document.querySelector('.pk-bookmarks') as HTMLElement
+}
+
+// 滚动按钮状态感知
+const isAtTop = ref(true)
+const isAtBottom = ref(false)
+
+const updateScrollState = () => {
+  const container = getBookmarksContainer()
+  if (!container) return
+  const threshold = 8
+  isAtTop.value = container.scrollTop <= threshold
+  isAtBottom.value = container.scrollTop + container.clientHeight >= container.scrollHeight - threshold
+}
+
 const scrollToTop = () => {
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth'
-  })
+  const container = getBookmarksContainer()
+  if (container) {
+    container.scrollTo({
+      top: 0,
+      behavior: 'smooth'
+    })
+  }
 }
 
 const scrollToBottom = () => {
-  window.scrollTo({
-    top: document.body.scrollHeight,
-    behavior: 'smooth'
-  })
+  const container = getBookmarksContainer()
+  if (container) {
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth'
+    })
+  }
 }
 
 // 缓存网络请求结果
@@ -270,6 +292,15 @@ onMounted(async () => {
     
     // 记录渲染完成时间
     performanceMetrics.value.renderTime = performance.now() - startTime
+
+    // 绑定书签区滚动监听
+    setTimeout(() => {
+      const container = getBookmarksContainer()
+      if (container) {
+        container.addEventListener('scroll', updateScrollState, { passive: true })
+        updateScrollState()
+      }
+    }, 300)
   } catch (error) {
     console.error('加载书签失败:', error)
   }
@@ -279,6 +310,11 @@ onBeforeUnmount(() => {
   // 清除性能监控定时器
   if (performanceInterval) {
     clearInterval(performanceInterval)
+  }
+  // 解绑滚动监听
+  const container = getBookmarksContainer()
+  if (container) {
+    container.removeEventListener('scroll', updateScrollState)
   }
 })
 
@@ -757,7 +793,7 @@ const probeBookmarks = async () => {
             </div>
             <div class="pk-title">
               <h1>十万伏特导航</h1>
-              <span class="pk-version">V1.1.1</span>
+              <span class="pk-version">V1.2.0</span>
             </div>
             <div class="pk-search-box">
               <div class="pk-search-icon">
@@ -937,26 +973,33 @@ const probeBookmarks = async () => {
 
       <footer class="pk-footer">
         <div class="pk-footer-content">
-          <div class="pk-footer-info">
+          <div class="pk-footer-left">
             <h3 class="pk-footer-title">十万伏特导航</h3>
             <p class="pk-footer-copyright">© 2026 carson1993. All rights reserved.</p>
           </div>
-
+          <div class="pk-footer-divider"></div>
+          <div class="pk-footer-right">
+            <span class="pk-footer-motto">⚡ 为梦想充电 ⚡</span>
+          </div>
         </div>
       </footer>
     </div>
 
     <div class="pk-scroll-controls">
-      <button class="pk-scroll-btn" @click="scrollToTop" title="回到顶部">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="18 15 12 9 6 15"></polyline>
-        </svg>
-      </button>
-      <button class="pk-scroll-btn" @click="scrollToBottom" title="到底部">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </button>
+      <Transition name="pk-scroll-fade">
+        <button v-show="!isAtTop" class="pk-scroll-btn" @click="scrollToTop" title="回到顶部">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+        </button>
+      </Transition>
+      <Transition name="pk-scroll-fade">
+        <button v-show="!isAtBottom" class="pk-scroll-btn" @click="scrollToBottom" title="到底部">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </Transition>
     </div>
 </template>
 
@@ -968,11 +1011,10 @@ const probeBookmarks = async () => {
 
 /* --- Container & Base --- */
 .pikachu-container {
-  min-height: 100vh;
+  height: 100vh;
   width: 100%;
   position: relative;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: background 0.6s ease;
   background: var(--bg-primary);
@@ -1091,8 +1133,10 @@ const probeBookmarks = async () => {
 
 /* --- Header --- */
 .pk-header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
   background: var(--bg-secondary);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -1465,15 +1509,18 @@ const probeBookmarks = async () => {
   flex: 1;
   max-width: 1920px;
   margin: 0 auto;
-  padding: 24px 48px 16px;
+  padding: 88px 48px 80px;
   box-sizing: border-box;
   width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 .pk-main-content {
   display: flex;
   gap: 24px;
   align-items: stretch;
+  height: 100%;
 }
 
 /* --- Sidebar --- */
@@ -1482,7 +1529,7 @@ const probeBookmarks = async () => {
   position: fixed;
   left: 48px;
   top: 88px;
-  bottom: 52px;
+  bottom: 76px;
   z-index: 90;
 }
 
@@ -1657,6 +1704,7 @@ const probeBookmarks = async () => {
   box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* --- Tabs --- */
@@ -1718,7 +1766,41 @@ const probeBookmarks = async () => {
 
 .pk-bookmarks {
   flex: 1;
-  min-height: 200px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px 0 24px;
+  scroll-behavior: smooth;
+}
+
+/* --- Custom Scrollbar --- */
+.pk-bookmarks::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pk-bookmarks::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.pk-bookmarks::-webkit-scrollbar-thumb {
+  background: rgba(245,196,0,0.2);
+  border-radius: 3px;
+  transition: background 0.3s ease;
+}
+
+.pk-bookmarks::-webkit-scrollbar-thumb:hover {
+  background: rgba(245,196,0,0.45);
+}
+
+.pk-bookmarks::-webkit-scrollbar-thumb:active {
+  background: rgba(245,196,0,0.6);
+}
+
+/* Firefox */
+.pk-bookmarks {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245,196,0,0.2) transparent;
 }
 
 .pk-empty {
@@ -2040,15 +2122,16 @@ const probeBookmarks = async () => {
 
 /* --- Footer --- */
 .pk-footer {
-  margin-top: 16px;
-  padding: 14px 0;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 16px 0;
   border-top: 1px solid var(--border-soft);
   background: var(--bg-secondary);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
-  position: relative;
-  z-index: 1;
-  width: 100%;
+  z-index: 100;
   box-sizing: border-box;
 }
 
@@ -2064,15 +2147,41 @@ const probeBookmarks = async () => {
 }
 
 .pk-footer-content {
-  max-width: 480px;
+  max-width: 720px;
   margin: 0 auto;
   padding: 0 24px;
   display: flex;
   justify-content: center;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+  gap: 20px;
   text-align: center;
+}
+
+.pk-footer-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.pk-footer-divider {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(180deg, transparent, rgba(245,196,0,0.3), transparent);
+  flex-shrink: 0;
+}
+
+.pk-footer-right {
+  display: flex;
+  align-items: center;
+}
+
+.pk-footer-motto {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .pk-footer-info {
@@ -2147,6 +2256,18 @@ const probeBookmarks = async () => {
   transform: translateY(-6px);
 }
 
+/* scroll button fade */
+.pk-scroll-fade-enter-active,
+.pk-scroll-fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.pk-scroll-fade-enter-from,
+.pk-scroll-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.7);
+}
+
 /* ============================================
    Responsive Breakpoints
    ============================================ */
@@ -2169,10 +2290,13 @@ const probeBookmarks = async () => {
     flex-wrap: wrap;
   }
   .pk-main-wrapper {
-    padding: 16px;
+    padding: 80px 16px 76px;
+    height: auto;
+    overflow: visible;
   }
   .pk-main-content {
     flex-direction: column;
+    height: auto;
   }
   .pk-sidebar-left {
     width: 100%;
@@ -2206,13 +2330,28 @@ const probeBookmarks = async () => {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
+  .pk-bookmarks {
+    overflow-y: visible;
+  }
   .pk-footer-content {
     padding: 0 16px;
     flex-direction: column;
+    gap: 8px;
+  }
+  .pk-footer-left {
+    align-items: center;
+  }
+  .pk-footer-divider {
+    width: 60px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(245,196,0,0.3), transparent);
   }
 }
 
 @media (max-width: 640px) {
+  .pk-header-content {
+    padding: 10px 16px;
+  }
   .pk-title h1 {
     font-size: 22px;
   }
@@ -2227,6 +2366,9 @@ const probeBookmarks = async () => {
   }
   .pk-quote {
     display: none;
+  }
+  .pk-main-wrapper {
+    padding: 100px 12px 84px;
   }
   .pk-bookmark-grid {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -2251,17 +2393,14 @@ const probeBookmarks = async () => {
   .pk-footer {
     padding: 20px 0;
   }
+  .pk-footer-content {
+    gap: 6px;
+  }
   .pk-footer-title {
     font-size: 14px;
   }
-  .pk-footer-links {
-    flex-direction: column;
-    align-items: center;
-  }
-  .pk-footer-link {
-    width: 100%;
-    max-width: 180px;
-    justify-content: center;
+  .pk-footer-motto {
+    font-size: 11px;
   }
   .pk-scroll-controls {
     right: 12px;
