@@ -530,6 +530,7 @@ const getBookmarkCount = (categoryId: string, tabId: string = 'all'): number => 
 // 拖拽功能状态
 const draggedBookmark = ref<Bookmark | null>(null)
 const dragOverCategoryId = ref<string | null>(null)
+const dragOverSubcategoryId = ref<string | null>(null)
 
 const probeLatencyMap = ref<Map<string, number>>(new Map())
 const isProbing = ref<boolean>(false)
@@ -557,6 +558,7 @@ const onDragStart = (event: DragEvent, bookmark: Bookmark) => {
 const onDragEnd = (event: DragEvent) => {
   draggedBookmark.value = null
   dragOverCategoryId.value = null
+  dragOverSubcategoryId.value = null
   const el = event.target as HTMLElement
   const card = el.closest('.pk-bookmark-card')
   if (card) card.classList.remove('dragging')
@@ -607,6 +609,71 @@ const onDropOnCategory = async (event: DragEvent, categoryId: string) => {
     }
   } catch (error) {
     console.error('移动书签失败:', error)
+  } finally {
+    draggedBookmark.value = null
+  }
+}
+
+const onDragOverSubcategory = (event: DragEvent, subcategoryId: string) => {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  dragOverSubcategoryId.value = subcategoryId
+}
+
+const onDragLeaveSubcategory = (event: DragEvent, _subcategoryId: string) => {
+  const el = event.currentTarget as HTMLElement
+  if (!el.contains(event.relatedTarget as Node)) {
+    dragOverSubcategoryId.value = null
+  }
+}
+
+const onDropOnSubcategory = async (event: DragEvent, categoryId: string, subcategoryId: string) => {
+  event.preventDefault()
+  dragOverSubcategoryId.value = null
+
+  if (!draggedBookmark.value) return
+  const bookmark = draggedBookmark.value
+  const currentCategory = bookmarkStore.categories.find((c) => c.id === activeCategoryId.value)
+
+  // 找到子分类对应的实际分类的 chromeFolderId
+  const targetCategory = bookmarkStore.categories.find((c) => c.id === categoryId)
+  let targetFolderId: string | undefined
+  if (subcategoryId === 'all') {
+    // 放到目标分类的根节点
+    targetFolderId = targetCategory?.chromeFolderId
+  } else {
+    // 放到目标分类的子分类下
+    const subcat = targetCategory?.subcategories.find(s => s.id === subcategoryId)
+    if (subcat) {
+      const subcatFull = bookmarkStore.categories.find(c => c.id === subcat.id)
+      targetFolderId = subcatFull?.chromeFolderId
+    } else {
+      targetFolderId = targetCategory?.chromeFolderId
+    }
+  }
+
+  if (!targetFolderId) return
+
+  // 不移动到当前分类当前标签页，避免重复计算
+  if (currentCategory?.id === categoryId &&
+      (subcategoryId === 'all' || subcategoryId === activeTabId.value)) {
+    return
+  }
+
+  const currentCategoryName = currentCategory?.name
+
+  try {
+    if (!chrome?.bookmarks?.move) throw new Error('Chrome API 不可用')
+    await chrome.bookmarks.move(bookmark.id, { parentId: targetFolderId })
+    await bookmarkStore.loadBookmarks()
+    const restored = bookmarkStore.categories.find((c) => c.name === currentCategoryName)
+    if (restored) {
+      activeCategoryId.value = restored.id
+    }
+  } catch (error) {
+    console.error('移动书签到子分类失败:', error)
   } finally {
     draggedBookmark.value = null
   }
@@ -800,8 +867,11 @@ const probeBookmarks = async () => {
             <div class="pk-tabs">
               <div
                 class="pk-tab-item"
-                :class="{ active: activeTabId === 'all' }"
+                :class="{ active: activeTabId === 'all', 'drag-over': dragOverSubcategoryId === 'all' }"
                 @click="showTabContent(activeCategoryId, 'all')"
+                @dragover="onDragOverSubcategory($event, 'all')"
+                @dragleave="onDragLeaveSubcategory($event, 'all')"
+                @drop="onDropOnSubcategory($event, activeCategoryId, 'all')"
               >
                 全部<span class="pk-tab-count">{{ formatCount(getBookmarkCount(activeCategoryId)) }}</span>
               </div>
@@ -809,8 +879,11 @@ const probeBookmarks = async () => {
                 v-for="subcat in bookmarkStore.categories.find(c => c.id === activeCategoryId)?.subcategories || []"
                 :key="subcat.id"
                 class="pk-tab-item"
-                :class="{ active: activeTabId === subcat.id }"
+                :class="{ active: activeTabId === subcat.id, 'drag-over': dragOverSubcategoryId === subcat.id }"
                 @click="showTabContent(activeCategoryId, subcat.id)"
+                @dragover="onDragOverSubcategory($event, subcat.id)"
+                @dragleave="onDragLeaveSubcategory($event, subcat.id)"
+                @drop="onDropOnSubcategory($event, activeCategoryId, subcat.id)"
               >
                 {{ subcat.name }}<span class="pk-tab-count">{{ formatCount(getBookmarkCount(activeCategoryId, subcat.id)) }}</span>
               </div>
@@ -1620,6 +1693,13 @@ const probeBookmarks = async () => {
   font-weight: 600;
   border-color: transparent;
   box-shadow: 0 2px 12px rgba(245,196,0,0.3);
+}
+
+.pk-tab-item.drag-over {
+  background: linear-gradient(135deg, rgba(245,196,0,0.2), rgba(240,160,48,0.12));
+  border-color: var(--accent-yellow);
+  box-shadow: 0 0 0 2px rgba(245,196,0,0.3), 0 0 16px rgba(245,196,0,0.2);
+  transform: scale(1.05);
 }
 
 /* --- Bookmarks --- */
